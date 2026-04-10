@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liero26 - Browser Worm Combat</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🐛</text></svg>">
+</head>
+<body>
+  <!-- MENU SCREEN -->
+  <div id="menu-screen" class="screen">
+    <div class="menu-container">
+      <div class="game-logo">
+        <div class="logo-worm logo-worm-1"></div>
+        <h1>LIERO<span class="logo-accent">26</span></h1>
+        <div class="logo-worm logo-worm-2"></div>
+      </div>
+      <p class="subtitle">Real-Time Worm Combat in Your Browser</p>
+
+      <div class="menu-form">
+        <label for="player-name">YOUR NAME:</label>
+        <input type="text" id="player-name" maxlength="20" placeholder="Enter your name..." value="">
+
+        <button class="btn btn-primary btn-large" onclick="quickPlay()">
+          ⚔️ QUICK PLAY
+        </button>
+        <button class="btn btn-secondary" onclick="connectAndPlay()">
+          🏠 BROWSE ROOMS
+        </button>
+      </div>
+
+      <div class="controls-info">
+        <h3>CONTROLS:</h3>
+        <div class="controls-grid">
+          <div class="control-item"><kbd>←</kbd><kbd>→</kbd> Move</div>
+          <div class="control-item"><kbd>↑</kbd><kbd>↓</kbd> Aim</div>
+          <div class="control-item"><kbd>D</kbd> Shoot</div>
+          <div class="control-item"><kbd>S</kbd> Jump</div>
+          <div class="control-item"><kbd>A</kbd> Change Weapon</div>
+          <div class="control-item"><kbd>A</kbd>+<kbd>S</kbd> Ninja Rope</div>
+          <div class="control-item"><kbd>A</kbd>+<kbd>←</kbd><kbd>→</kbd> Switch Weapon</div>
+          <div class="control-item"><kbd>C</kbd> Dig</div>
+          <div class="control-item"><kbd>Tab</kbd> Scoreboard</div>
+          <div class="control-item"><kbd>Enter</kbd> Chat</div>
+        </div>
+      </div>
+
+      <div class="footer-info">
+        <p>Based on Liero v1.33 by Metsänelaimet (1998-1999)</p>
+        <p>Built with ❤️ using HTML5 Canvas & WebSocket</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOBBY SCREEN -->
+  <div id="lobby-screen" class="screen" style="display:none">
+    <div class="lobby-container">
+      <h2>🏠 GAME ROOMS</h2>
+
+      <div class="create-room-bar">
+        <input type="text" id="room-name-input" placeholder="Room name..." maxlength="24">
+        <select id="room-mode-select">
+          <option value="0">Deathmatch</option>
+          <option value="1">Team Deathmatch</option>
+          <option value="2">Last Man Standing</option>
+          <option value="3">Hold the Flag</option>
+        </select>
+        <button class="btn btn-primary" onclick="client.createRoom()">CREATE ROOM</button>
+      </div>
+
+      <div id="room-list" class="room-list">
+        <div class="room-item loading">Loading rooms...</div>
+      </div>
+
+      <button class="btn btn-secondary" onclick="client.showMenu()">← BACK</button>
+    </div>
+  </div>
+
+  <!-- WEAPON SELECT SCREEN -->
+  <div id="weapon-screen" class="screen" style="display:none">
+    <div class="weapon-container">
+      <h2>⚔️ SELECT YOUR WEAPONS</h2>
+      <p class="weapon-instructions">Click a weapon to assign it to the active slot. Select 5 weapons for your loadout.</p>
+
+      <div id="selected-weapons" class="selected-weapons"></div>
+
+      <div id="weapon-list" class="weapon-grid"></div>
+
+      <div class="weapon-actions">
+        <button class="btn btn-primary btn-large" onclick="startGameFromWeaponSelect()">
+          🎮 START GAME
+        </button>
+        <button class="btn btn-secondary" onclick="client.showLobby()">← BACK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game-screen" class="screen" style="display:none">
+    <canvas id="game-canvas"></canvas>
+    <div id="chat-container" class="chat-container" style="display:none"></div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/shared/constants.js"></script>
+  <script src="/shared/weapons.js"></script>
+  <script src="/shared/palette.js"></script>
+  <script src="/shared/engine.js"></script>
+  <script src="renderer.js"></script>
+  <script src="sound.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
