@@ -1,6 +1,7 @@
 // Liero26 - Shared Game Engine
 // Deterministic game simulation that runs on both client and server
 
+(function() {
 const CONSTANTS = (typeof require !== 'undefined') ? require('./constants') : window.CONSTANTS;
 const WEAPONS = (typeof require !== 'undefined') ? require('./weapons') : window.WEAPONS;
 
@@ -199,7 +200,7 @@ class GameEngine {
     }
 
     // Create some caves/tunnels
-    this._carveCaves(5 + Math.floor(Math.random() * 8));
+    this._carveCaves(8 + Math.floor(Math.random() * 10));
 
     return { map: this.map, mapColors: this.mapColors };
   }
@@ -266,7 +267,7 @@ class GameEngine {
       let dy = (Math.random() - 0.5) * 2;
 
       for (let i = 0; i < length; i++) {
-        const radius = 4 + Math.floor(Math.random() * 6);
+        const radius = 5 + Math.floor(Math.random() * 8);
         this._carveCircle(Math.floor(cx), Math.floor(cy), radius);
         cx += dx;
         cy += dy;
@@ -321,8 +322,11 @@ class GameEngine {
         return { x, y };
       }
     }
-    // Fallback
-    return { x: this.mapWidth / 2, y: this.mapHeight / 2 };
+    // Fallback - carve a spawn point in the center
+    const cx = Math.floor(this.mapWidth / 2);
+    const cy = Math.floor(this.mapHeight / 2);
+    this._carveCircle(cx, cy, 10);
+    return { x: cx, y: cy };
   }
 
   _isSpawnValid(x, y) {
@@ -334,8 +338,8 @@ class GameEngine {
         const py = y + dy;
         if (px < 0 || px >= this.mapWidth || py < 0 || py >= this.mapHeight) return false;
         const mat = this.map[py * this.mapWidth + px];
-        if (mat === CONSTANTS.MATERIAL.ROCK || mat === CONSTANTS.MATERIAL.ROCK2 ||
-            mat === CONSTANTS.MATERIAL.ROCK3) {
+        // Worm must spawn in open air (background only)
+        if (mat !== CONSTANTS.MATERIAL.BACKGROUND) {
           return false;
         }
       }
@@ -1417,8 +1421,7 @@ class GameEngine {
 // Export
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { GameEngine, Worm, Projectile, Particle, NinjaRope, Bonus, getAimDirX, getAimDirY, WEAPONS };
-}
-if (typeof window !== 'undefined') {
+} else if (typeof window !== 'undefined') {
   window.GameEngine = GameEngine;
   window.Worm = Worm;
   window.Projectile = Projectile;
@@ -1426,3 +1429,5 @@ if (typeof window !== 'undefined') {
   window.getAimDirX = getAimDirX;
   window.getAimDirY = getAimDirY;
 }
+
+})();

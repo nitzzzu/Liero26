@@ -1,7 +1,8 @@
 // Liero26 - Weapon Definitions
 // All 40 weapons from original Liero v1.33
 
-const WEAPONS = [
+;(function() {
+var WEAPONS = [
   {
     id: 0, name: 'SHOTGUN', speed: 250, gravity: 700/65536, parts: 15, ammo: 5,
     loadingTime: 235, delay: 57, recoil: 55, hitDamage: 1, bloodOnHit: 3,
@@ -369,7 +370,8 @@ const WEAPONS = [
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = WEAPONS;
-}
-if (typeof window !== 'undefined') {
+} else if (typeof window !== 'undefined') {
   window.WEAPONS = WEAPONS;
 }
+
+})();

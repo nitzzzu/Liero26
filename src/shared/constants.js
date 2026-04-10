@@ -1,7 +1,8 @@
 // Liero26 - Shared Game Constants
 // Based on original Liero v1.33 physics constants from TC/openliero/tc.cfg
 
-const CONSTANTS = {
+;(function() {
+var CONSTANTS = {
   // Fixed-point scale factor (original Liero uses 16-bit fixed point)
   FP_SCALE: 65536,
   FP_SHIFT: 16,
@@ -132,7 +133,8 @@ const CONSTANTS = {
 // Export for both Node.js and browser
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = CONSTANTS;
-}
-if (typeof window !== 'undefined') {
+} else if (typeof window !== 'undefined') {
   window.CONSTANTS = CONSTANTS;
 }
+
+})();

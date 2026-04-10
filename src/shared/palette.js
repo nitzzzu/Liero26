@@ -1,7 +1,8 @@
 // Liero26 - Classic Liero Color Palette (256 colors)
 // Based on the original VGA palette from Liero v1.33
 
-const PALETTE = [
+;(function() {
+var PALETTE = [
   // 0: Background (black)
   [0, 0, 0],
   // 1-7: Dark greys to light
@@ -106,7 +107,7 @@ const PALETTE = [
 ];
 
 // Worm color sets (6 different worm colors)
-const WORM_COLORS = [
+var WORM_COLORS = [
   // Green
   { body: [[0, 100, 0], [0, 140, 0], [0, 180, 0]], outline: [0, 60, 0], crosshair: [0, 255, 0] },
   // Red
@@ -123,8 +124,9 @@ const WORM_COLORS = [
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { PALETTE, WORM_COLORS };
-}
-if (typeof window !== 'undefined') {
+} else if (typeof window !== 'undefined') {
   window.PALETTE = PALETTE;
   window.WORM_COLORS = WORM_COLORS;
 }
+
+})();
