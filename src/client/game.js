@@ -383,11 +383,24 @@ class LieroClient {
     for (const room of this.rooms) {
       const div = document.createElement('div');
       div.className = 'room-item';
-      div.innerHTML = `
-        <div class="room-name">${this._escapeHtml(room.name)}</div>
-        <div class="room-info">${room.gameMode} · ${room.players}/${room.maxPlayers} players</div>
-        <button class="btn btn-join" onclick="client.joinRoom(${room.id})">JOIN</button>
-      `;
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'room-name';
+      nameDiv.textContent = room.name;
+
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'room-info';
+      infoDiv.textContent = `${room.gameMode} · ${room.players}/${room.maxPlayers} players`;
+
+      const joinBtn = document.createElement('button');
+      joinBtn.className = 'btn btn-join';
+      joinBtn.textContent = 'JOIN';
+      const roomId = room.id;
+      joinBtn.addEventListener('click', () => client.joinRoom(roomId));
+
+      div.appendChild(nameDiv);
+      div.appendChild(infoDiv);
+      div.appendChild(joinBtn);
       roomList.appendChild(div);
     }
   }
@@ -414,14 +427,22 @@ class LieroClient {
     // Selected weapons display
     const selectedDiv = document.getElementById('selected-weapons');
     if (selectedDiv) {
-      selectedDiv.innerHTML = '<h3>YOUR LOADOUT:</h3>';
+      selectedDiv.innerHTML = '';
+      const header = document.createElement('h3');
+      header.textContent = 'YOUR LOADOUT:';
+      selectedDiv.appendChild(header);
       for (let i = 0; i < 5; i++) {
         const w = WEAPONS[this.selectedWeapons[i]];
         const div = document.createElement('div');
         div.className = 'selected-weapon-item';
-        div.innerHTML = `<span class="slot-num">${i + 1}.</span> ${w.name}`;
+        const slotSpan = document.createElement('span');
+        slotSpan.className = 'slot-num';
+        slotSpan.textContent = `${i + 1}.`;
+        div.appendChild(slotSpan);
+        div.appendChild(document.createTextNode(' ' + w.name));
+        const slotIdx = i;
         div.onclick = () => {
-          this.weaponSelectSlot = i;
+          this.weaponSelectSlot = slotIdx;
           this.renderWeaponSelect();
         };
         if (i === this.weaponSelectSlot) div.classList.add('active-slot');
@@ -436,16 +457,27 @@ class LieroClient {
       const isSelected = this.selectedWeapons.includes(w.id);
       if (isSelected) div.classList.add('weapon-selected');
 
-      div.innerHTML = `
-        <div class="weapon-name">${w.name}</div>
-        <div class="weapon-stats">
-          <span>DMG:${w.hitDamage}</span>
-          <span>SPD:${Math.floor(w.speed / 10)}</span>
-          <span>AMO:${w.ammo}</span>
-        </div>
-      `;
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'weapon-name';
+      nameDiv.textContent = w.name;
+      div.appendChild(nameDiv);
+
+      const statsDiv = document.createElement('div');
+      statsDiv.className = 'weapon-stats';
+      const dmgSpan = document.createElement('span');
+      dmgSpan.textContent = `DMG:${w.hitDamage}`;
+      const spdSpan = document.createElement('span');
+      spdSpan.textContent = `SPD:${Math.floor(w.speed / 10)}`;
+      const amoSpan = document.createElement('span');
+      amoSpan.textContent = `AMO:${w.ammo}`;
+      statsDiv.appendChild(dmgSpan);
+      statsDiv.appendChild(spdSpan);
+      statsDiv.appendChild(amoSpan);
+      div.appendChild(statsDiv);
+
+      const weapId = w.id;
       div.onclick = () => {
-        this.selectedWeapons[this.weaponSelectSlot] = w.id;
+        this.selectedWeapons[this.weaponSelectSlot] = weapId;
         this.weaponSelectSlot = (this.weaponSelectSlot + 1) % 5;
         this.renderWeaponSelect();
       };
@@ -490,25 +522,40 @@ class LieroClient {
     const chatDiv = document.getElementById('chat-container');
     if (!chatDiv) return;
 
-    let html = '';
+    chatDiv.innerHTML = '';
     const now = Date.now();
     const recent = this.chatMessages.filter(m => now - m.time < 10000 || this.chatOpen);
+    let hasContent = false;
 
     for (const msg of recent) {
-      const senderClass = msg.sender === 'system' ? 'chat-system' : 'chat-player';
-      html += `<div class="${senderClass}">`;
+      hasContent = true;
+      const div = document.createElement('div');
+      div.className = msg.sender === 'system' ? 'chat-system' : 'chat-player';
       if (msg.sender !== 'system') {
-        html += `<span class="chat-name">${this._escapeHtml(msg.sender)}:</span> `;
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'chat-name';
+        nameSpan.textContent = msg.sender + ':';
+        div.appendChild(nameSpan);
+        div.appendChild(document.createTextNode(' ' + msg.message));
+      } else {
+        div.textContent = msg.message;
       }
-      html += `${this._escapeHtml(msg.message)}</div>`;
+      chatDiv.appendChild(div);
     }
 
     if (this.chatOpen) {
-      html += `<div class="chat-input-line">&gt; ${this._escapeHtml(this.chatInput)}<span class="cursor">|</span></div>`;
+      hasContent = true;
+      const inputDiv = document.createElement('div');
+      inputDiv.className = 'chat-input-line';
+      inputDiv.textContent = '> ' + this.chatInput;
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      cursor.textContent = '|';
+      inputDiv.appendChild(cursor);
+      chatDiv.appendChild(inputDiv);
     }
 
-    chatDiv.innerHTML = html;
-    chatDiv.style.display = (html || this.chatOpen) ? 'block' : 'none';
+    chatDiv.style.display = (hasContent || this.chatOpen) ? 'block' : 'none';
   }
 
   _escapeHtml(str) {
