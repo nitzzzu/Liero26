@@ -558,12 +558,6 @@ class LieroClient {
     chatDiv.style.display = (hasContent || this.chatOpen) ? 'block' : 'none';
   }
 
-  _escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
   // Client-side particle update
   updateParticles() {
     const particles = window._particles;

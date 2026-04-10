@@ -248,11 +248,9 @@ class Renderer {
       this.renderRope(x, y, w.rope);
     }
 
-    // Draw name tag
-    if (!isLocal || true) {
-      this.renderText(w.name, x - (w.name.length * 2), y - r - 8,
-        cc[0], cc[1], cc[2], true);
-    }
+    // Draw name tag (always visible for all players)
+    this.renderText(w.name, x - (w.name.length * 2), y - r - 8,
+      cc[0], cc[1], cc[2], true);
 
     // Health bar (only for local player's view or when close)
     if (isLocal) {
