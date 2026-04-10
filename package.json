@@ -1,0 +1,27 @@
+{
+  "name": "liero26",
+  "version": "1.0.0",
+  "description": "Liero26 - Browser-based Liero clone with multiplayer support",
+  "main": "src/server/index.js",
+  "scripts": {
+    "start": "node src/server/index.js",
+    "dev": "node src/server/index.js",
+    "test": "node tests/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nitzzzu/Liero26.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nitzzzu/Liero26/issues"
+  },
+  "homepage": "https://github.com/nitzzzu/Liero26#readme",
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
