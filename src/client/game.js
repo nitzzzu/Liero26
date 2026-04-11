@@ -85,6 +85,10 @@ class LieroClient {
 
     // UI state
     this.screen = 'menu'; // 'menu', 'lobby', 'character', 'weapons', 'game'
+
+    // Gamepad state
+    this.gamepadState = {};
+    this.gamepadIndex = null; // index of the active gamepad
   }
 
   init() {
@@ -96,6 +100,7 @@ class LieroClient {
     document.addEventListener('keydown', (e) => this.onKeyDown(e));
     document.addEventListener('keyup', (e) => this.onKeyUp(e));
     this.initTouchControls();
+    this.initGamepadSupport();
 
     // Show menu
     this.showMenu();
@@ -518,6 +523,11 @@ class LieroClient {
       }
     }
 
+    // Merge gamepad state
+    for (const action of Object.keys(newInput)) {
+      if (this.gamepadState[action]) newInput[action] = true;
+    }
+
     // Check if changed
     let changed = false;
     for (const key of Object.keys(newInput)) {
@@ -560,6 +570,64 @@ class LieroClient {
         this.updateInput();
       });
     });
+  }
+
+  initGamepadSupport() {
+    window.addEventListener('gamepadconnected', (e) => {
+      if (this.gamepadIndex === null) {
+        this.gamepadIndex = e.gamepad.index;
+        console.log(`Gamepad connected: ${e.gamepad.id} (index ${e.gamepad.index})`);
+      }
+    });
+    window.addEventListener('gamepaddisconnected', (e) => {
+      if (this.gamepadIndex === e.gamepad.index) {
+        this.gamepadIndex = null;
+        this.gamepadState = {};
+        this.updateInput();
+        console.log('Gamepad disconnected');
+        // Adopt another connected gamepad if available
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (let i = 0; i < pads.length; i++) {
+          if (pads[i]) { this.gamepadIndex = i; break; }
+        }
+      }
+    });
+  }
+
+  // Standard gamepad button mapping (Xbox / PS layout)
+  // Buttons: 0=A/Cross(jump), 1=B/Circle(dig), 2=X/Square(change),
+  //          3=Y/Triangle(fire), 4=LB, 5=RB, 6=LT, 7=RT(fire),
+  //          12=DpadUp, 13=DpadDown, 14=DpadLeft, 15=DpadRight
+  // Axes:    0=LeftStickX, 1=LeftStickY
+  pollGamepad() {
+    if (this.gamepadIndex === null) return;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gp = pads[this.gamepadIndex];
+    if (!gp) return;
+
+    const AXIS_DEADZONE = 0.25;
+    const isPressed = (i) => gp.buttons[i] && gp.buttons[i].pressed;
+
+    const next = {
+      left:   isPressed(14) || gp.axes[0] < -AXIS_DEADZONE,
+      right:  isPressed(15) || gp.axes[0] >  AXIS_DEADZONE,
+      up:     isPressed(12) || gp.axes[1] < -AXIS_DEADZONE,
+      down:   isPressed(13) || gp.axes[1] >  AXIS_DEADZONE,
+      jump:   isPressed(0),
+      dig:    isPressed(1),
+      change: isPressed(2),
+      fire:   isPressed(3) || isPressed(7),
+    };
+
+    // Only call updateInput if anything changed
+    let changed = false;
+    for (const k of Object.keys(next)) {
+      if (next[k] !== (this.gamepadState[k] || false)) { changed = true; break; }
+    }
+    if (changed) {
+      this.gamepadState = next;
+      this.updateInput();
+    }
   }
 
   send(msg) {
@@ -896,6 +964,9 @@ class LieroClient {
   // Main render loop
   renderLoop() {
     requestAnimationFrame(() => this.renderLoop());
+
+    // Poll gamepad input every frame
+    this.pollGamepad();
 
     if (this.screen !== 'game' || !this.state || !this.map) return;
 
