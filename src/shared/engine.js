@@ -1024,7 +1024,8 @@ class GameEngine {
     }
 
     // Spawn sub-projectiles (cluster bombs, napalm, etc.)
-    if (w.spawnOnExplo) {
+    // Skip if this is already a sub-projectile to prevent exponential chaining
+    if (w.spawnOnExplo && !proj.isSubProjectile) {
       this._spawnSubProjectiles(proj, w);
     }
 
@@ -1064,6 +1065,7 @@ class GameEngine {
         Math.sin(angle) * speed
       );
       subProj.exploTimer = 30 + Math.floor(Math.random() * 60);
+      subProj.isSubProjectile = true;
       this.projectiles.push(subProj);
     }
   }
