@@ -27,18 +27,20 @@ assert(CONSTANTS.MODE_NAMES.length === 4, 'Four game modes');
 
 // Test Weapons
 console.log('\nTesting Weapons...');
-assert(WEAPONS.length === 40, 'All 40 weapons loaded');
+assert(WEAPONS.length === 50, 'All 50 weapons loaded');
 assert(WEAPONS[0].name === 'SHOTGUN', 'First weapon is Shotgun');
 assert(WEAPONS[3].name === 'BAZOOKA', 'Bazooka at index 3');
 assert(WEAPONS[28].name === 'LASER', 'Laser at index 28');
-assert(WEAPONS[39].name === 'GAUSS GUN', 'Last weapon is Gauss Gun');
+assert(WEAPONS[39].name === 'GAUSS GUN', 'Gauss Gun at index 39');
+assert(WEAPONS[40].name === 'FLAMETHROWER MK2', 'Flamethrower Mk2 at index 40');
+assert(WEAPONS[49].name === 'BLACK HOLE', 'Black Hole at index 49');
 assert(WEAPONS[0].parts === 15, 'Shotgun fires 15 pellets');
 assert(WEAPONS[9].name === 'FLAMER', 'Flamer at index 9');
 assert(WEAPONS[10].name === 'GRENADE', 'Grenade at index 10');
 
 // Test unique weapon names
 const names = new Set(WEAPONS.map(w => w.name));
-assert(names.size === 40, 'All weapon names are unique');
+assert(names.size === 50, 'All weapon names are unique');
 
 // Test GameEngine
 console.log('\nTesting Game Engine...');

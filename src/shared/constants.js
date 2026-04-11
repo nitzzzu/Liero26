@@ -36,6 +36,9 @@ var CONSTANTS = {
     DIG_SPEED: 1,
     COLORS_P1: [6, 14, 22, 30],  // worm colors player 1
     COLORS_P2: [80, 82, 84, 86], // worm colors player 2
+    INVINCIBLE_TICKS: 60,
+    FREEZE_TICKS: 140,
+    RESPAWN_TICKS: 210, // 3 seconds
   },
 
   // Ninja rope physics
@@ -75,11 +78,14 @@ var CONSTANTS = {
   // Blood/particles
   BLOOD: {
     FIRST_COLOR: 80,
-    NUM_COLORS: 2,
+    NUM_COLORS: 8,
     STEP_UP: 25,
     STEP_DOWN: 25,
-    LIMIT: 500,
+    LIMIT: 1500,
     GRAVITY: 1000 / 65536,
+    LIFE_MULT: 1.5,
+    STAIN_POOL_THRESHOLD: 4,
+    STAIN_DARK_COLOR: 83,
   },
 
   // Material types (for terrain)
@@ -127,6 +133,8 @@ var CONSTANTS = {
     BONUS_HEALTH: true,
     BONUS_WEAPONS: true,
     MAP_REGEN: false,
+    COUNTDOWN_TICKS: 210, // 3 seconds at 70Hz
+    GORINESS: 1, // multiplier for blood (1=normal, 2=double, etc.)
   },
 };
 

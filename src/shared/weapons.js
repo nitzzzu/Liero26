@@ -366,7 +366,103 @@ var WEAPONS = [
     affectByExplosions: false, laserSight: true, sound: 'rifle',
     isLaser: true, createOnExp: 'small',
   },
+  // --- New Weapons ---
+  {
+    id: 40, name: 'FLAMETHROWER MK2', speed: 130, gravity: -300/65536, parts: 2, ammo: 300,
+    loadingTime: 5, delay: 0, recoil: 0, hitDamage: 2, bloodOnHit: 0,
+    distribution: 6000/65536, bounce: 0, timeToExplo: 45, timeToExploV: 10,
+    blowAway: 0, fireCone: 6, shotType: 1, color: 0, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: true, groundCollide: false,
+    affectByExplosions: false, laserSight: false, sound: 'burner',
+    colorAnim: { from: 129, to: 132 }, createOnExp: 'tiny',
+  },
+  {
+    id: 41, name: 'PORTAL GUN', speed: 350, gravity: 0, parts: 1, ammo: 4,
+    loadingTime: 60, delay: 0, recoil: 5, hitDamage: 0, bloodOnHit: 0,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 0, color: 168, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: false, groundCollide: false,
+    affectByExplosions: false, laserSight: false, sound: 'blaster',
+    portalGun: true, createOnExp: 'tiny',
+  },
+  {
+    id: 42, name: 'GRAVITY BOMB', speed: 180, gravity: 1200/65536, parts: 1, ammo: 2,
+    loadingTime: 420, delay: 0, recoil: 0, hitDamage: 0, bloodOnHit: 0,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 3, color: 0, splinterAmount: 0,
+    leaveShells: false, exploSize: 1, wormCollide: true, groundCollide: true,
+    affectByExplosions: false, laserSight: false, sound: 'throw',
+    gravityWell: true, startFrame: 6, createOnExp: 'medium',
+  },
+  {
+    id: 43, name: 'FREEZE RAY', speed: 280, gravity: 0, parts: 1, ammo: 6,
+    loadingTime: 200, delay: 0, recoil: 5, hitDamage: 4, bloodOnHit: 0,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 2, shotType: 0, color: 168, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: true, groundCollide: true,
+    affectByExplosions: false, laserSight: false, sound: 'blaster',
+    freezeOnHit: true, createOnExp: 'tiny',
+  },
+  {
+    id: 44, name: 'DRILL ROCKET', speed: 160, gravity: 0, parts: 1, ammo: 3,
+    loadingTime: 400, delay: 0, recoil: 12, hitDamage: 15, bloodOnHit: 40,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 5, fireCone: 0, shotType: 3, color: 0, splinterAmount: 20,
+    leaveShells: false, exploSize: 2, wormCollide: true, groundCollide: true,
+    affectByExplosions: false, laserSight: false, sound: 'bazooka',
+    drillThrough: true, startFrame: 2, createOnExp: 'large',
+  },
+  {
+    id: 45, name: 'CHAIN LIGHTNING', speed: 320, gravity: 0, parts: 1, ammo: 5,
+    loadingTime: 250, delay: 0, recoil: 15, hitDamage: 12, bloodOnHit: 30,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 0, color: 152, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: true, groundCollide: true,
+    affectByExplosions: false, laserSight: false, sound: 'rifle',
+    chainLightning: true, createOnExp: 'small',
+  },
+  {
+    id: 46, name: 'BOOMERANG', speed: 200, gravity: 0, parts: 1, ammo: 5,
+    loadingTime: 180, delay: 0, recoil: 0, hitDamage: 8, bloodOnHit: 20,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 3, fireCone: 0, shotType: 0, color: 96, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: true, groundCollide: false,
+    affectByExplosions: false, laserSight: false, sound: 'throw',
+    boomerang: true, createOnExp: 'tiny',
+  },
+  {
+    id: 47, name: 'TELEPORT MINE', speed: 90, gravity: 1300/65536, parts: 1, ammo: 3,
+    loadingTime: 290, delay: 0, recoil: 0, hitDamage: 0, bloodOnHit: 0,
+    distribution: 0, bounce: 20, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 3, color: 0, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: false, groundCollide: false,
+    affectByExplosions: true, laserSight: false, sound: 'throw',
+    teleportOnTrigger: true, detectDistance: 18, startFrame: 6, createOnExp: 'small',
+  },
+  {
+    id: 48, name: 'RIOT SHIELD', speed: 0, gravity: 0, parts: 0, ammo: 6,
+    loadingTime: 210, delay: 0, recoil: 0, hitDamage: 0, bloodOnHit: 0,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 0, color: 168, splinterAmount: 0,
+    leaveShells: false, exploSize: 0, wormCollide: false, groundCollide: false,
+    affectByExplosions: false, laserSight: false, sound: null,
+    shieldMode: true, createOnExp: 'tiny',
+  },
+  {
+    id: 49, name: 'BLACK HOLE', speed: 140, gravity: 0, parts: 1, ammo: 1,
+    loadingTime: 700, delay: 0, recoil: 20, hitDamage: 0, bloodOnHit: 0,
+    distribution: 0, bounce: 0, timeToExplo: 0, timeToExploV: 0,
+    blowAway: 0, fireCone: 0, shotType: 3, color: 0, splinterAmount: 0,
+    leaveShells: false, exploSize: 1, wormCollide: true, groundCollide: true,
+    affectByExplosions: false, laserSight: false, sound: 'exp3',
+    blackHole: true, startFrame: 2, createOnExp: 'medium',
+  },
 ];
+
+// Double bloodOnHit for all weapons (goriness baseline × 2)
+for (const w of WEAPONS) {
+  if (w.bloodOnHit > 0) w.bloodOnHit = w.bloodOnHit * 2;
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = WEAPONS;
