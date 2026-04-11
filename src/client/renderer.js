@@ -47,6 +47,11 @@ class Renderer {
     // Map data cache
     this.mapDirty = true;
 
+    // Sprite sheets and per-worm animation state
+    this.sprites = {};
+    this.wormAnimState = {};
+    this.loadSprites();
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -161,11 +166,11 @@ class Renderer {
       }
     }
 
-    // Render worms
+    // Render worm pixel-buffer elements (crosshair, laser, rope, health bar)
     for (const id in state.worms) {
       const w = state.worms[id];
       if (!w.alive) continue;
-      this.renderWorm(w, parseInt(id) === localPlayerId);
+      this.renderWormPixels(w, parseInt(id) === localPlayerId);
     }
 
     // Update camera to follow local player
@@ -181,59 +186,117 @@ class Renderer {
     this.bufCtx.putImageData(this.imageData, 0, 0);
 
     // Draw viewport region scaled to canvas
-    const sx = Math.floor(this.camX + this.screenShakeX);
-    const sy = Math.floor(this.camY + this.screenShakeY);
+    const drawCamX = Math.floor(this.camX + this.screenShakeX);
+    const drawCamY = Math.floor(this.camY + this.screenShakeY);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.drawImage(
       this.buffer,
-      sx, sy, this.viewWidth, this.viewHeight,
+      drawCamX, drawCamY, this.viewWidth, this.viewHeight,
       0, 0, this.canvas.width, this.canvas.height
     );
+
+    // Render worm sprites on top of the scaled canvas
+    for (const id in state.worms) {
+      const w = state.worms[id];
+      this.renderWormSprite(w, parseInt(id) === localPlayerId, drawCamX, drawCamY);
+    }
 
     // Draw HUD overlay (on scaled canvas)
     this.renderHUD(state, localPlayerId);
   }
 
-  renderWorm(w, isLocal) {
+  loadSprites() {
+    const ANIM_FILES = {
+      idle:   'Pink_Monster_Idle_4.png',
+      walk:   'Pink_Monster_Walk_6.png',
+      run:    'Pink_Monster_Run_6.png',
+      jump:   'Pink_Monster_Jump_8.png',
+      attack: 'Pink_Monster_Attack1_4.png',
+      hurt:   'Pink_Monster_Hurt_4.png',
+      death:  'Pink_Monster_Death_8.png',
+    };
+    for (const [key, file] of Object.entries(ANIM_FILES)) {
+      const img = new Image();
+      img.src = `/sprites/${file}`;
+      this.sprites[key] = img;
+    }
+  }
+
+  _getWormAnim(wormId, w) {
+    if (!this.wormAnimState[wormId]) {
+      this.wormAnimState[wormId] = {
+        anim: 'idle', frame: 0, frameTimer: 0,
+        prevHealth: w.health, hurtTimer: 0, dead: false,
+      };
+    }
+    const st = this.wormAnimState[wormId];
+
+    const FRAMES = { idle: 4, walk: 6, run: 6, jump: 8, attack: 4, hurt: 4, death: 8 };
+    const SPEEDS = { idle: 8, walk: 5, run: 3, jump: 4, attack: 4, hurt: 4, death: 6 };
+
+    // Detect damage
+    if (w.health < st.prevHealth) st.hurtTimer = 20;
+    st.prevHealth = w.health;
+
+    // Death — play once then freeze on last frame
+    if (!w.alive) {
+      if (!st.dead) { st.dead = true; st.anim = 'death'; st.frame = 0; st.frameTimer = 0; }
+      st.frameTimer++;
+      if (st.frameTimer >= SPEEDS.death) {
+        st.frameTimer = 0;
+        if (st.frame < FRAMES.death - 1) st.frame++;
+      }
+      return st;
+    }
+    if (st.dead) { st.dead = false; st.anim = 'idle'; st.frame = 0; st.frameTimer = 0; }
+
+    // Hurt flash
+    if (st.hurtTimer > 0) {
+      st.hurtTimer--;
+      if (st.anim !== 'hurt') { st.anim = 'hurt'; st.frame = 0; st.frameTimer = 0; }
+      st.frameTimer++;
+      if (st.frameTimer >= SPEEDS.hurt) { st.frameTimer = 0; st.frame = (st.frame + 1) % FRAMES.hurt; }
+      return st;
+    }
+
+    // Derive animation from movement
+    const absVx = Math.abs(w.vx);
+    const absVy = Math.abs(w.vy);
+    let next;
+    if (w.showWeapon)    next = 'attack';
+    else if (absVy > 0.5) next = 'jump';
+    else if (absVx > 2)   next = 'run';
+    else if (absVx > 0.1) next = 'walk';
+    else                   next = 'idle';
+
+    if (next !== st.anim) { st.anim = next; st.frame = 0; st.frameTimer = 0; }
+
+    st.frameTimer++;
+    if (st.frameTimer >= SPEEDS[st.anim]) {
+      st.frameTimer = 0;
+      st.frame = (st.frame + 1) % FRAMES[st.anim];
+    }
+    return st;
+  }
+
+  // Pixel-buffer elements: crosshair, laser, rope, health bar
+  renderWormPixels(w, isLocal) {
     const colors = WORM_COLORS[w.color % WORM_COLORS.length];
     const x = Math.floor(w.x);
     const y = Math.floor(w.y);
-    const r = 3;
-
-    // Draw worm body (3-pixel radius circle with shading)
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist <= r) {
-          const shade = Math.floor(dist);
-          const c = colors.body[Math.min(shade, colors.body.length - 1)];
-          this.setPixel(x + dx, y + dy, c[0], c[1], c[2], 255);
-        }
-      }
-    }
-
-    // Draw outline
-    const outPts = [[-r-1,0],[r+1,0],[0,-r-1],[0,r+1],[-r,-r],[r,-r],[-r,r],[r,r]];
-    for (const [dx, dy] of outPts) {
-      this.setPixel(x + dx, y + dy, colors.outline[0], colors.outline[1], colors.outline[2], 255);
-    }
-
-    // Draw aiming crosshair
-    const aimX = getAimDirX(w.aim, w.facing);
-    const aimY = getAimDirY(w.aim);
-    const crossDist = 12;
-    const cx = Math.floor(x + aimX * crossDist);
-    const cy = Math.floor(y + aimY * crossDist);
     const cc = colors.crosshair;
 
-    // Crosshair pattern
-    this.setPixel(cx, cy, cc[0], cc[1], cc[2], 255);
-    this.setPixel(cx - 1, cy, cc[0], cc[1], cc[2], 255);
-    this.setPixel(cx + 1, cy, cc[0], cc[1], cc[2], 255);
-    this.setPixel(cx, cy - 1, cc[0], cc[1], cc[2], 255);
-    this.setPixel(cx, cy + 1, cc[0], cc[1], cc[2], 255);
+    const aimX = getAimDirX(w.aim, w.facing);
+    const aimY = getAimDirY(w.aim);
+    const crossDist = 14;
+    const cx = Math.floor(x + aimX * crossDist);
+    const cy = Math.floor(y + aimY * crossDist);
+    this.setPixel(cx,     cy,     cc[0], cc[1], cc[2], 255);
+    this.setPixel(cx - 1, cy,     cc[0], cc[1], cc[2], 255);
+    this.setPixel(cx + 1, cy,     cc[0], cc[1], cc[2], 255);
+    this.setPixel(cx,     cy - 1, cc[0], cc[1], cc[2], 255);
+    this.setPixel(cx,     cy + 1, cc[0], cc[1], cc[2], 255);
 
-    // Laser sight
     if (w.weapons && WEAPONS[w.weapons[w.currentWeapon]] && WEAPONS[w.weapons[w.currentWeapon]].laserSight) {
       for (let d = 5; d < 200; d += 2) {
         const lx = Math.floor(x + aimX * d);
@@ -243,43 +306,76 @@ class Renderer {
       }
     }
 
-    // Draw ninja rope
-    if (w.rope && w.rope.active) {
-      this.renderRope(x, y, w.rope);
-    }
+    if (w.rope && w.rope.active) this.renderRope(x, y, w.rope);
 
-    // Draw name tag (always visible for all players)
-    this.renderText(w.name, x - (w.name.length * 2), y - r - 8,
-      cc[0], cc[1], cc[2], true);
-
-    // Health bar (only for local player's view or when close)
+    // Health bar (pixel buffer, below sprite)
     if (isLocal) {
       const barW = 20;
       const barX = x - barW / 2;
-      const barY = y + r + 3;
+      const barY = y + 14;
       const healthPct = w.health / 100;
-
-      // Background
       for (let i = 0; i < barW; i++) {
-        this.setPixel(barX + i, barY, 40, 40, 40, 255);
+        this.setPixel(barX + i, barY,     40, 40, 40, 255);
         this.setPixel(barX + i, barY + 1, 40, 40, 40, 255);
       }
-      // Health fill
       const fillW = Math.floor(barW * healthPct);
       const hr = healthPct > 0.5 ? Math.floor(255 * (1 - healthPct) * 2) : 255;
       const hg = healthPct > 0.5 ? 255 : Math.floor(255 * healthPct * 2);
       for (let i = 0; i < fillW; i++) {
-        this.setPixel(barX + i, barY, hr, hg, 0, 255);
+        this.setPixel(barX + i, barY,     hr, hg, 0, 255);
         this.setPixel(barX + i, barY + 1, hr, hg, 0, 255);
       }
     }
+  }
 
-    // Show weapon indicator
+  // Sprite drawn on canvas after the map blit
+  renderWormSprite(w, isLocal, camX, camY) {
+    const st = this._getWormAnim(String(w.id), w);
+    const sprite = this.sprites[st.anim];
+
+    // Canvas position (world → screen)
+    const sx = (w.x - camX) * this.scale;
+    const sy = (w.y - camY) * this.scale;
+    const DRAW = Math.floor(32 * this.scale * 0.75); // 24 screen-px at scale=1
+
+    const colors = WORM_COLORS[w.color % WORM_COLORS.length];
+    const cc = colors.crosshair;
+
+    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+      this.ctx.save();
+      this.ctx.imageSmoothingEnabled = false;
+      // Colored glow to distinguish players
+      this.ctx.shadowColor = `rgb(${cc[0]},${cc[1]},${cc[2]})`;
+      this.ctx.shadowBlur = 5 * this.scale;
+
+      if (w.facing === -1) {
+        // Flip horizontally around sprite centre
+        this.ctx.translate(sx, 0);
+        this.ctx.scale(-1, 1);
+        this.ctx.drawImage(sprite, st.frame * 32, 0, 32, 32,
+          -DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+      } else {
+        this.ctx.drawImage(sprite, st.frame * 32, 0, 32, 32,
+          sx - DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+      }
+      this.ctx.restore();
+    }
+
+    // Name tag above sprite
+    this.ctx.save();
+    this.ctx.imageSmoothingEnabled = false;
+    this.ctx.font = `${Math.max(8, 6 * this.scale)}px monospace`;
+    this.ctx.textAlign = 'center';
+    this.ctx.fillStyle = `rgb(${cc[0]},${cc[1]},${cc[2]})`;
+    this.ctx.fillText(w.name, sx, sy - DRAW / 2 - 3 * this.scale);
+
     if (w.showWeapon && w.weapons) {
       const weapName = WEAPONS[w.weapons[w.currentWeapon]].name;
-      this.renderText(weapName, x - (weapName.length * 2), y - r - 15,
-        255, 255, 0, true);
+      this.ctx.fillStyle = 'rgb(255,255,0)';
+      this.ctx.fillText(weapName, sx, sy - DRAW / 2 - 12 * this.scale);
     }
+    this.ctx.textAlign = 'left';
+    this.ctx.restore();
   }
 
   renderRope(wx, wy, rope) {
