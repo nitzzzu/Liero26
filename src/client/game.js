@@ -15,6 +15,7 @@ class LieroClient {
     this.inGame = false;
     this.rooms = [];
     this.currentRoomId = null;
+    this.currentRoomPassword = null;
 
     // Input state
     this.keys = {};
@@ -49,11 +50,41 @@ class LieroClient {
     this.weaponSelectOpen = false;
     this.weaponSelectSlot = 0;
 
+    // Character selection
+    this.selectedCharacter = localStorage.getItem('liero_character') || 'Pink_Monster';
+    this.availableCharacters = ['Pink_Monster', 'Dude_Monster', 'Owlet_Monster'];
+    this.showCharacterSelect = false;
+
     // Tab scoreboard
     this.showScoreboard = false;
 
+    // Spectator mode
+    this.spectating = false;
+    this.spectateTarget = null;
+
+    // Ping / latency
+    this.latency = 0;
+
+    // Kill streaks
+    this.streakMessages = []; // { text, timer }
+
+    // Damage numbers (floating text)
+    this.damageNumbers = []; // { x, y, value, timer, vy }
+
+    // Countdown
+    this.countdownValue = 0;
+
+    // Post-round stats
+    this.postRoundStats = null;
+    this.showPostRoundStats = false;
+
+    // Reconnect info
+    this._lastRoomId = null;
+    this._lastRoomPassword = null;
+    this._reconnectAttempts = 0;
+
     // UI state
-    this.screen = 'menu'; // 'menu', 'lobby', 'weapons', 'game'
+    this.screen = 'menu'; // 'menu', 'lobby', 'character', 'weapons', 'game'
   }
 
   init() {
@@ -79,6 +110,7 @@ class LieroClient {
     document.getElementById('game-screen').style.display = 'none';
     document.getElementById('lobby-screen').style.display = 'none';
     document.getElementById('weapon-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'none';
   }
 
   connect() {
@@ -88,6 +120,7 @@ class LieroClient {
 
     this.ws.onopen = () => {
       this.connected = true;
+      this._reconnectAttempts = 0;
       console.log('Connected to server');
     };
 
@@ -98,10 +131,13 @@ class LieroClient {
 
     this.ws.onclose = () => {
       this.connected = false;
-      this.inGame = false;
       console.log('Disconnected');
-      // Show reconnect UI
-      if (this.screen === 'game') {
+      // Auto-reconnect if we were in a game
+      if (this.screen === 'game' && this._lastRoomId && this._reconnectAttempts < 5) {
+        this._reconnectAttempts++;
+        this.addChatMessage('system', `Disconnected. Reconnecting... (${this._reconnectAttempts}/5)`);
+        setTimeout(() => this._attemptReconnect(), 2000 * this._reconnectAttempts);
+      } else if (this.screen === 'game') {
         this.showMenu();
       }
     };
@@ -109,6 +145,48 @@ class LieroClient {
     this.ws.onerror = (err) => {
       console.error('WebSocket error');
     };
+  }
+
+  _attemptReconnect() {
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${window.location.host}`;
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      this.connected = true;
+      this._reconnectAttempts = 0;
+      // Rejoin last room
+      this.ws.send(JSON.stringify({
+        type: 'rejoin',
+        roomId: this._lastRoomId,
+        name: this.playerName,
+        character: this.selectedCharacter,
+        password: this._lastRoomPassword,
+      }));
+      // Resend weapons
+      setTimeout(() => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'weapons', weapons: this.selectedWeapons }));
+        }
+      }, 300);
+    };
+
+    this.ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      this.handleMessage(msg);
+    };
+
+    this.ws.onclose = () => {
+      this.connected = false;
+      if (this._lastRoomId && this._reconnectAttempts < 5) {
+        this._reconnectAttempts++;
+        setTimeout(() => this._attemptReconnect(), 2000 * this._reconnectAttempts);
+      } else {
+        this.showMenu();
+      }
+    };
+
+    this.ws.onerror = () => {};
   }
 
   handleMessage(msg) {
@@ -131,9 +209,14 @@ class LieroClient {
         this.renderer.buffer.height = msg.mapHeight;
         this.inGame = true;
         this.screen = 'game';
+        this.postRoundStats = null;
+        this.showPostRoundStats = false;
+        this.streakMessages = [];
+        this.damageNumbers = [];
         document.getElementById('menu-screen').style.display = 'none';
         document.getElementById('lobby-screen').style.display = 'none';
         document.getElementById('weapon-screen').style.display = 'none';
+        document.getElementById('character-screen').style.display = 'none';
         document.getElementById('game-screen').style.display = 'block';
         this.sound.init();
         this.sound.play('begin');
@@ -142,6 +225,20 @@ class LieroClient {
 
       case 'state':
         this.state = msg.state;
+        // Update countdown
+        if (msg.state.countdown !== undefined) {
+          this.countdownValue = msg.state.countdown;
+        }
+        break;
+
+      case 'map_delta':
+        // Apply terrain changes
+        if (this.map && msg.cells) {
+          for (const cell of msg.cells) {
+            this.map[cell.idx] = cell.mat;
+            this.mapColors[cell.idx] = cell.color;
+          }
+        }
         break;
 
       case 'events':
@@ -172,16 +269,34 @@ class LieroClient {
         this.state = msg.state;
         this.renderer.explosions = [];
         window._particles = [];
+        this.postRoundStats = null;
+        this.showPostRoundStats = false;
+        this.streakMessages = [];
+        this.damageNumbers = [];
         this.addChatMessage('system', 'New match started!');
         this.sound.play('begin');
         break;
 
       case 'game_over':
         this.state = msg.state || this.state;
+        if (msg.stats) {
+          this.postRoundStats = msg.stats;
+          // Show stats after a short delay
+          setTimeout(() => { this.showPostRoundStats = true; }, 2000);
+        }
         break;
 
       case 'room_created':
         this.send({ type: 'list_rooms' });
+        break;
+
+      case 'ping':
+        // Respond immediately
+        this.send({ type: 'pong', ts: msg.ts });
+        break;
+
+      case 'latency':
+        this.latency = msg.latency;
         break;
 
       case 'error':
@@ -225,39 +340,86 @@ class LieroClient {
             }
           }
           break;
-        case 'kill':
+        case 'kill': {
           if (this.state && this.state.worms) {
             const killer = this.state.worms[event.killerId];
             const victim = this.state.worms[event.victimId];
             if (killer && victim) {
+              const weapName = event.weaponId >= 0 && WEAPONS[event.weaponId] ? ` [${WEAPONS[event.weaponId].name}]` : '';
               if (event.killerId === event.victimId) {
                 this.addChatMessage('system', `${victim.name} committed suicide`);
               } else {
-                this.addChatMessage('system', `${killer.name} killed ${victim.name}`);
+                this.addChatMessage('system', `${killer.name} killed ${victim.name}${weapName}`);
               }
+            }
+            // Screen blood splat if local player was killed
+            if (event.victimId === this.playerId) {
+              this.renderer.triggerBloodSplat(0.6);
             }
           }
           break;
-        case 'damage':
-          // Spawn blood particles locally
+        }
+        case 'damage': {
           if (this.state && this.state.worms) {
             const target = this.state.worms[event.targetId];
             if (target) {
-              for (let i = 0; i < Math.min(event.damage, 8); i++) {
+              // Blood particles
+              const bloodCount = Math.min(Math.ceil(event.damage * 1.5), 12);
+              for (let i = 0; i < bloodCount; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = 0.3 + Math.random() * 1.5;
                 window._particles.push({
                   x: target.x, y: target.y,
                   vx: Math.cos(angle) * speed,
                   vy: Math.sin(angle) * speed,
-                  color: 80 + Math.floor(Math.random() * 2),
-                  life: 30 + Math.floor(Math.random() * 20),
-                  gravity: 0.02,
+                  color: 80 + Math.floor(Math.random() * 8),
+                  life: Math.ceil((30 + Math.floor(Math.random() * 20)) * 1.5),
+                  gravity: 0.015,
                   active: true,
+                  bounce: 0,
+                  size: 1,
                 });
+              }
+              // Floating damage number
+              this.damageNumbers.push({
+                x: target.x,
+                y: target.y - 5,
+                value: event.damage,
+                vy: -0.8,
+                timer: 50,
+              });
+              // Screen blood splat on heavy damage to local player
+              if (event.targetId === this.playerId && event.damage >= 10) {
+                const intensity = Math.min(event.damage / 50, 0.5);
+                this.renderer.triggerBloodSplat(intensity);
               }
             }
           }
+          break;
+        }
+        case 'streak': {
+          if (event.playerId === this.playerId || true) {
+            const worm = this.state && this.state.worms ? this.state.worms[event.playerId] : null;
+            const name = worm ? worm.name : 'Player';
+            this.streakMessages.push({
+              text: event.text,
+              name: name,
+              timer: 120,
+              isLocal: event.playerId === this.playerId,
+            });
+          }
+          break;
+        }
+        case 'countdown_done':
+          this.countdownValue = 0;
+          break;
+        case 'chain_lightning':
+          this.renderer.addChainLightning(event.fromX, event.fromY, event.toX, event.toY);
+          break;
+        case 'teleport':
+          // Flash effect
+          break;
+        case 'frozen':
           break;
       }
     }
@@ -314,8 +476,8 @@ class LieroClient {
     }
 
     if (e.key === 'Escape') {
-      if (this.screen === 'game') {
-        // Show pause menu or back to lobby
+      if (this.screen === 'game' && this.showPostRoundStats) {
+        this.showPostRoundStats = false;
       }
       return;
     }
@@ -409,6 +571,7 @@ class LieroClient {
     document.getElementById('lobby-screen').style.display = 'flex';
     document.getElementById('game-screen').style.display = 'none';
     document.getElementById('weapon-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'none';
     this.send({ type: 'list_rooms' });
   }
 
@@ -423,7 +586,7 @@ class LieroClient {
 
       const nameDiv = document.createElement('div');
       nameDiv.className = 'room-name';
-      nameDiv.textContent = room.name;
+      nameDiv.textContent = room.name + (room.hasPassword ? ' 🔒' : '');
 
       const infoDiv = document.createElement('div');
       infoDiv.className = 'room-info';
@@ -433,7 +596,15 @@ class LieroClient {
       joinBtn.className = 'btn btn-join';
       joinBtn.textContent = 'JOIN';
       const roomId = room.id;
-      joinBtn.addEventListener('click', () => client.joinRoom(roomId));
+      const hasPass = room.hasPassword;
+      joinBtn.addEventListener('click', () => {
+        if (hasPass) {
+          const pw = prompt('Enter room password:');
+          if (pw !== null) client.joinRoom(roomId, pw);
+        } else {
+          client.joinRoom(roomId, null);
+        }
+      });
 
       div.appendChild(nameDiv);
       div.appendChild(infoDiv);
@@ -442,15 +613,61 @@ class LieroClient {
     }
   }
 
-  joinRoom(roomId) {
+  joinRoom(roomId, password) {
     this.currentRoomId = roomId;
-    this.showWeaponSelect();
+    this.currentRoomPassword = password;
+    this._lastRoomId = roomId;
+    this._lastRoomPassword = password;
+    this.showCharacterSelectScreen();
+  }
+
+  showCharacterSelectScreen() {
+    this.screen = 'character';
+    document.getElementById('menu-screen').style.display = 'none';
+    document.getElementById('lobby-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('weapon-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'flex';
+    this.renderCharacterSelect();
+  }
+
+  renderCharacterSelect() {
+    const container = document.getElementById('character-list');
+    if (!container) return;
+    container.innerHTML = '';
+
+    for (const char of this.availableCharacters) {
+      const div = document.createElement('div');
+      div.className = 'character-item' + (char === this.selectedCharacter ? ' character-selected' : '');
+
+      const img = document.createElement('img');
+      img.src = `/sprites/${char}/${char}_Idle_4.png`;
+      img.alt = char;
+      img.className = 'character-thumb';
+      img.onerror = () => { img.style.display = 'none'; };
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'character-name';
+      nameDiv.textContent = char.replace(/_/g, ' ');
+
+      div.appendChild(img);
+      div.appendChild(nameDiv);
+
+      const charName = char;
+      div.onclick = () => {
+        this.selectedCharacter = charName;
+        localStorage.setItem('liero_character', charName);
+        this.renderCharacterSelect();
+      };
+      container.appendChild(div);
+    }
   }
 
   showWeaponSelect() {
     this.screen = 'weapons';
     document.getElementById('menu-screen').style.display = 'none';
     document.getElementById('lobby-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'none';
     document.getElementById('weapon-screen').style.display = 'flex';
     document.getElementById('game-screen').style.display = 'none';
     this.renderWeaponSelect();
@@ -527,6 +744,8 @@ class LieroClient {
       type: 'join',
       roomId: this.currentRoomId,
       name: this.playerName,
+      character: this.selectedCharacter,
+      password: this.currentRoomPassword,
     });
     // Send weapon selection
     setTimeout(() => {
@@ -538,6 +757,8 @@ class LieroClient {
     const name = document.getElementById('room-name-input').value.trim() || 'New Room';
     const modeSelect = document.getElementById('room-mode-select');
     const gameMode = modeSelect ? parseInt(modeSelect.value) : 0;
+    const passwordInput = document.getElementById('room-password-input');
+    const password = passwordInput ? passwordInput.value.trim() : '';
 
     this.send({
       type: 'create_room',
@@ -545,6 +766,8 @@ class LieroClient {
       gameMode,
       scoreLimit: 15,
       timeLimit: 300,
+      password: password || null,
+      goriness: 2,
     });
   }
 
@@ -610,14 +833,27 @@ class LieroClient {
         continue;
       }
 
-      // Stick to terrain
+      // Stick to / bounce off terrain
       if (this.map) {
         const px = Math.floor(p.x);
         const py = Math.floor(p.y);
         if (px >= 0 && px < this.renderer.gameWidth && py >= 0 && py < this.renderer.gameHeight) {
           if (this.map[py * this.renderer.gameWidth + px] !== 0) {
-            p.vx = 0;
-            p.vy = 0;
+            if (p.bounce > 0) {
+              const bounceF = p.bounce / 100;
+              p.vy = -p.vy * bounceF;
+              if (Math.abs(p.vy) < 0.15) { p.bounce = 0; p.vx = 0; p.vy = 0; }
+            } else {
+              p.vx = 0;
+              p.vy = 0;
+              // Blood stain on terrain (visual only on client)
+              if (p.color >= 80 && p.color < 88) {
+                const idx = py * this.renderer.gameWidth + px;
+                if (this.mapColors && this.map[idx] !== 0) {
+                  this.mapColors[idx] = 80 + Math.floor(Math.random() * 8);
+                }
+              }
+            }
           }
         }
       }
@@ -629,8 +865,27 @@ class LieroClient {
     }
 
     // Limit
-    while (particles.length > 300) {
+    while (particles.length > 800) {
       particles.shift();
+    }
+  }
+
+  // Update damage numbers
+  updateDamageNumbers() {
+    for (let i = this.damageNumbers.length - 1; i >= 0; i--) {
+      const dn = this.damageNumbers[i];
+      dn.y += dn.vy;
+      dn.vy *= 0.95;
+      dn.timer--;
+      if (dn.timer <= 0) this.damageNumbers.splice(i, 1);
+    }
+  }
+
+  // Update streak messages
+  updateStreakMessages() {
+    for (let i = this.streakMessages.length - 1; i >= 0; i--) {
+      this.streakMessages[i].timer--;
+      if (this.streakMessages[i].timer <= 0) this.streakMessages.splice(i, 1);
     }
   }
 
@@ -642,13 +897,58 @@ class LieroClient {
 
     // Update client particles
     this.updateParticles();
+    this.updateDamageNumbers();
+    this.updateStreakMessages();
+
+    // Determine camera target (spectator follows first alive worm)
+    let cameraTarget = null;
+    const localWorm = this.state.worms ? this.state.worms[this.playerId] : null;
+
+    if (localWorm && !localWorm.spectating) {
+      cameraTarget = localWorm;
+    } else {
+      // Spectator: follow first alive worm
+      for (const id in this.state.worms) {
+        const w = this.state.worms[id];
+        if (w.alive && parseInt(id) !== this.playerId) {
+          cameraTarget = w;
+          break;
+        }
+      }
+    }
 
     // Render
-    this.renderer.render(this.state, this.map, this.mapColors, this.playerId);
+    this.renderer.render(this.state, this.map, this.mapColors, this.playerId, cameraTarget);
+
+    // Render damage numbers
+    this.renderer.renderDamageNumbers(this.damageNumbers);
+
+    // Render streak messages
+    this.renderer.renderStreakMessages(this.streakMessages);
+
+    // Render countdown
+    if (this.countdownValue > 0) {
+      this.renderer.renderCountdown(this.countdownValue);
+    }
+
+    // Render minimap
+    this.renderer.renderMinimap(this.state, this.map, this.mapColors);
+
+    // Render post-round stats
+    if (this.showPostRoundStats && this.postRoundStats) {
+      this.renderer.renderPostRoundStats(this.postRoundStats, this.playerId);
+    }
 
     // Render scoreboard overlay
     if (this.showScoreboard) {
       this.renderScoreboard();
+    }
+
+    // Update ping display
+    const pingEl = document.getElementById('ping-display');
+    if (pingEl) {
+      pingEl.textContent = `${this.latency}ms`;
+      pingEl.style.color = this.latency < 80 ? '#44ff44' : this.latency < 200 ? '#ffff44' : '#ff4444';
     }
 
     // Update chat visibility
@@ -677,6 +977,7 @@ class LieroClient {
     ctx.textAlign = 'center';
     ctx.fillText('KILLS', cw * 0.55, ch * 0.25);
     ctx.fillText('DEATHS', cw * 0.7, ch * 0.25);
+    ctx.fillText('PING', cw * 0.82, ch * 0.25);
 
     if (!this.state) return;
 
@@ -693,11 +994,14 @@ class LieroClient {
       const colors = WORM_COLORS[w.color % WORM_COLORS.length].crosshair;
       ctx.fillStyle = `rgb(${colors[0]},${colors[1]},${colors[2]})`;
       ctx.textAlign = 'left';
-      ctx.fillText(w.name, cw * 0.2, y);
+      ctx.fillText(w.name + (w.isBot ? ' [BOT]' : ''), cw * 0.2, y);
       ctx.textAlign = 'center';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(w.kills.toString(), cw * 0.55, y);
       ctx.fillText(w.deaths.toString(), cw * 0.7, y);
+      if (parseInt(Object.keys(this.state.worms).find(id => this.state.worms[id] === w)) === this.playerId) {
+        ctx.fillText(`${this.latency}ms`, cw * 0.82, y);
+      }
     }
     ctx.textAlign = 'left';
   }
@@ -742,16 +1046,22 @@ function quickPlay() {
       clearInterval(waitForConnection);
       // Join first available room
       client.currentRoomId = 1;
+      client._lastRoomId = 1;
       client.send({
         type: 'join',
         roomId: 1,
         name: client.playerName,
+        character: client.selectedCharacter,
       });
       setTimeout(() => {
         client.send({ type: 'weapons', weapons: client.selectedWeapons });
       }, 500);
     }
   }, 100);
+}
+
+function startGameFromCharacterSelect() {
+  client.showWeaponSelect();
 }
 
 function startGameFromWeaponSelect() {

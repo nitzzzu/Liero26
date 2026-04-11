@@ -44,16 +44,57 @@ class Renderer {
     // Explosions effect list
     this.explosions = [];
 
+    // Chain lightning effects
+    this.chainLightnings = [];
+
+    // Blood splat overlay
+    this.bloodSplatAlpha = 0;
+
     // Map data cache
     this.mapDirty = true;
 
-    // Sprite sheets and per-worm animation state
-    this.sprites = {};
+    // Sprite sheets per character: { characterName: { idle, walk, ... } }
+    this.characterSprites = {};
     this.wormAnimState = {};
-    this.loadSprites();
+
+    // Load sprites for all characters
+    this.availableCharacters = ['Pink_Monster', 'Dude_Monster', 'Owlet_Monster'];
+    for (const char of this.availableCharacters) {
+      this._loadCharacterSprites(char);
+    }
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  _loadCharacterSprites(character) {
+    const ANIM_FILES = {
+      idle:   `${character}_Idle_4.png`,
+      walk:   `${character}_Walk_6.png`,
+      run:    `${character}_Run_6.png`,
+      jump:   `${character}_Jump_8.png`,
+      attack: `${character}_Attack1_4.png`,
+      hurt:   `${character}_Hurt_4.png`,
+      death:  `${character}_Death_8.png`,
+    };
+    const sprites = {};
+    for (const [key, file] of Object.entries(ANIM_FILES)) {
+      const img = new Image();
+      img.src = `/sprites/${character}/${file}`;
+      // Fallback to root sprites dir for Pink_Monster (legacy)
+      img.onerror = () => {
+        if (character === 'Pink_Monster') {
+          img.src = `/sprites/${file}`;
+        }
+      };
+      sprites[key] = img;
+    }
+    this.characterSprites[character] = sprites;
+  }
+
+  // Legacy sprite getter for backward compatibility
+  get sprites() {
+    return this.characterSprites['Pink_Monster'] || {};
   }
 
   resize() {
@@ -126,7 +167,7 @@ class Renderer {
     }
   }
 
-  render(state, map, mapColors, localPlayerId) {
+  render(state, map, mapColors, localPlayerId, cameraTarget) {
     this.animTick++;
 
     // Render full map to pixel buffer
@@ -145,6 +186,20 @@ class Renderer {
       this.renderFlag(state.flag);
     }
 
+    // Render portals
+    if (state.portals) {
+      for (const p of state.portals) {
+        this.renderPortal(p);
+      }
+    }
+
+    // Render black holes
+    if (state.blackHoles) {
+      for (const bh of state.blackHoles) {
+        this.renderBlackHole(bh);
+      }
+    }
+
     // Render projectiles
     if (state.projectiles) {
       for (const p of state.projectiles) {
@@ -158,10 +213,23 @@ class Renderer {
         if (!p.active) continue;
         const c = this.getPixelFromPalette(p.color);
         const alpha = Math.min(1, p.life / 10);
-        this.setPixel(Math.floor(p.x), Math.floor(p.y),
-          c[0] * alpha, c[1] * alpha, c[2] * alpha, 255);
+        const size = p.size || 1;
+        if (size > 1) {
+          for (let dy = -Math.floor(size/2); dy <= Math.floor(size/2); dy++) {
+            for (let dx = -Math.floor(size/2); dx <= Math.floor(size/2); dx++) {
+              this.setPixel(Math.floor(p.x) + dx, Math.floor(p.y) + dy,
+                c[0] * alpha, c[1] * alpha, c[2] * alpha, 255);
+            }
+          }
+        } else {
+          this.setPixel(Math.floor(p.x), Math.floor(p.y),
+            c[0] * alpha, c[1] * alpha, c[2] * alpha, 255);
+        }
       }
     }
+
+    // Render chain lightning effects
+    this._updateChainLightnings();
 
     // Render worm pixel-buffer elements (crosshair, laser, rope, health bar)
     for (const id in state.worms) {
@@ -170,10 +238,10 @@ class Renderer {
       this.renderWormPixels(w, parseInt(id) === localPlayerId);
     }
 
-    // Update camera to follow local player
-    const localWorm = state.worms[localPlayerId];
-    if (localWorm) {
-      this.updateCamera(localWorm.x, localWorm.y);
+    // Update camera to follow target
+    const target = cameraTarget || (state.worms && state.worms[localPlayerId]);
+    if (target) {
+      this.updateCamera(target.x, target.y);
     }
 
     // Render explosions
@@ -198,25 +266,45 @@ class Renderer {
       this.renderWormSprite(w, parseInt(id) === localPlayerId, drawCamX, drawCamY);
     }
 
+    // Blood splat overlay
+    if (this.bloodSplatAlpha > 0) {
+      this.ctx.fillStyle = `rgba(180, 0, 0, ${this.bloodSplatAlpha})`;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.bloodSplatAlpha *= 0.92;
+      if (this.bloodSplatAlpha < 0.01) this.bloodSplatAlpha = 0;
+    }
+
     // Draw HUD overlay (on scaled canvas)
     this.renderHUD(state, localPlayerId);
   }
 
-  loadSprites() {
-    const ANIM_FILES = {
-      idle:   'Pink_Monster_Idle_4.png',
-      walk:   'Pink_Monster_Walk_6.png',
-      run:    'Pink_Monster_Run_6.png',
-      jump:   'Pink_Monster_Jump_8.png',
-      attack: 'Pink_Monster_Attack1_4.png',
-      hurt:   'Pink_Monster_Hurt_4.png',
-      death:  'Pink_Monster_Death_8.png',
-    };
-    for (const [key, file] of Object.entries(ANIM_FILES)) {
-      const img = new Image();
-      img.src = `/sprites/${file}`;
-      this.sprites[key] = img;
+  triggerBloodSplat(intensity) {
+    this.bloodSplatAlpha = Math.max(this.bloodSplatAlpha, intensity);
+  }
+
+  addChainLightning(fromX, fromY, toX, toY) {
+    this.chainLightnings.push({ fromX, fromY, toX, toY, timer: 8 });
+  }
+
+  _updateChainLightnings() {
+    for (let i = this.chainLightnings.length - 1; i >= 0; i--) {
+      const cl = this.chainLightnings[i];
+      cl.timer--;
+      if (cl.timer <= 0) { this.chainLightnings.splice(i, 1); continue; }
+      // Draw lightning arc
+      const steps = 12;
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps;
+        const x = Math.floor(cl.fromX + (cl.toX - cl.fromX) * t + (Math.random() - 0.5) * 6);
+        const y = Math.floor(cl.fromY + (cl.toY - cl.fromY) * t + (Math.random() - 0.5) * 6);
+        this.setPixel(x, y, 200, 200, 255, 255);
+        this.setPixel(x + 1, y, 150, 150, 255, 200);
+      }
     }
+  }
+
+  loadSprites() {
+    // Legacy method - sprites now loaded via _loadCharacterSprites
   }
 
   _getWormAnim(wormId, w) {
@@ -283,6 +371,17 @@ class Renderer {
     const y = Math.floor(w.y);
     const cc = colors.crosshair;
 
+    // Respawn invincibility: flash (skip every other animTick)
+    if (w.invincibleTimer > 0 && this.animTick % 4 < 2) return;
+
+    // Frozen: draw blue tint marker
+    if (w.frozenTimer > 0) {
+      for (let i = -4; i <= 4; i++) {
+        this.setPixel(x + i, y - 5, 100, 150, 255, 200);
+        this.setPixel(x + i, y + 5, 100, 150, 255, 200);
+      }
+    }
+
     const aimX = getAimDirX(w.aim, w.facing);
     const aimY = getAimDirY(w.aim);
     const crossDist = 14;
@@ -304,6 +403,16 @@ class Renderer {
     }
 
     if (w.rope && w.rope.active) this.renderRope(x, y, w.rope);
+
+    // Shield indicator
+    if (w.shieldActive) {
+      for (let a = 0; a < 16; a++) {
+        const angle = (a / 16) * Math.PI * 2;
+        const sx = Math.floor(x + Math.cos(angle) * 8);
+        const sy = Math.floor(y + Math.sin(angle) * 8);
+        this.setPixel(sx, sy, 100, 200, 255, 200);
+      }
+    }
 
     // Health bar (pixel buffer, below sprite)
     if (isLocal) {
@@ -328,7 +437,11 @@ class Renderer {
   // Sprite drawn on canvas after the map blit
   renderWormSprite(w, isLocal, camX, camY) {
     const st = this._getWormAnim(String(w.id), w);
-    const sprite = this.sprites[st.anim];
+
+    // Get character-specific sprites
+    const charName = w.character || 'Pink_Monster';
+    const charSprites = this.characterSprites[charName] || this.characterSprites['Pink_Monster'] || {};
+    const sprite = charSprites[st.anim];
 
     // Per-axis pixel ratios (canvas may be stretched to fill non-4:3 screens)
     const pxW = this.canvas.width / this.viewWidth;
@@ -342,6 +455,19 @@ class Renderer {
     const colors = WORM_COLORS[w.color % WORM_COLORS.length];
     const cc = colors.crosshair;
 
+    // Respawn invincibility: skip sprite on alternate frames
+    if (w.invincibleTimer > 0 && this.animTick % 4 < 2) {
+      // Still draw name
+      this.ctx.save();
+      this.ctx.font = `${Math.max(8, 6 * this.scale)}px monospace`;
+      this.ctx.textAlign = 'center';
+      this.ctx.fillStyle = `rgb(${cc[0]},${cc[1]},${cc[2]})`;
+      this.ctx.fillText(w.name, sx, sy - DRAW / 2 - 3 * this.scale);
+      this.ctx.textAlign = 'left';
+      this.ctx.restore();
+      return;
+    }
+
     if (sprite && sprite.complete && sprite.naturalWidth > 0) {
       this.ctx.save();
       this.ctx.imageSmoothingEnabled = false;
@@ -349,15 +475,38 @@ class Renderer {
       this.ctx.shadowColor = `rgb(${cc[0]},${cc[1]},${cc[2]})`;
       this.ctx.shadowBlur = 5 * this.scale;
 
+      // Wound overlay: tint red when health < 30
+      if (w.health > 0 && w.health < 30) {
+        this.ctx.globalCompositeOperation = 'source-over';
+      }
+
       if (w.facing === -1) {
         // Flip horizontally around sprite centre
         this.ctx.translate(sx, 0);
         this.ctx.scale(-1, 1);
         this.ctx.drawImage(sprite, st.frame * 32, 0, 32, 32,
           -DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+        // Wound overlay
+        if (w.health > 0 && w.health < 30) {
+          this.ctx.globalAlpha = 0.4 * (1 - w.health / 30);
+          this.ctx.fillStyle = '#CC0000';
+          this.ctx.globalCompositeOperation = 'multiply';
+          this.ctx.fillRect(-DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+          this.ctx.globalAlpha = 1;
+          this.ctx.globalCompositeOperation = 'source-over';
+        }
       } else {
         this.ctx.drawImage(sprite, st.frame * 32, 0, 32, 32,
           sx - DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+        // Wound overlay
+        if (w.health > 0 && w.health < 30) {
+          this.ctx.globalAlpha = 0.4 * (1 - w.health / 30);
+          this.ctx.fillStyle = '#CC0000';
+          this.ctx.globalCompositeOperation = 'multiply';
+          this.ctx.fillRect(sx - DRAW / 2, sy - DRAW / 2, DRAW, DRAW);
+          this.ctx.globalAlpha = 1;
+          this.ctx.globalCompositeOperation = 'source-over';
+        }
       }
       this.ctx.restore();
     }
@@ -464,6 +613,10 @@ class Renderer {
         colors[0] = [80, 80, 80];
         colors[1] = [120, 120, 120];
         colors[2] = [160, 160, 160];
+      } else if (w.teleportOnTrigger) {
+        colors[0] = [128, 0, 128];
+        colors[1] = [180, 0, 180];
+        colors[2] = [220, 50, 220];
       }
 
       for (let dy = -size; dy <= size; dy++) {
@@ -478,6 +631,30 @@ class Renderer {
       return;
     }
 
+    // Freeze ray: ice blue
+    if (w.freezeOnHit) {
+      this.setPixel(x, y, 100, 200, 255, 255);
+      const tx = Math.floor(x - p.vx * 2);
+      const ty = Math.floor(y - p.vy * 2);
+      this.setPixel(tx, ty, 50, 100, 200, 180);
+      return;
+    }
+
+    // Boomerang: yellow arc
+    if (w.boomerang) {
+      this.setPixel(x, y, 255, 200, 50, 255);
+      this.setPixel(x + 1, y, 255, 220, 80, 255);
+      this.setPixel(x - 1, y, 200, 160, 30, 255);
+      return;
+    }
+
+    // Chain lightning: white dot
+    if (w.chainLightning) {
+      this.setPixel(x, y, 200, 200, 255, 255);
+      this.setPixel(x + 1, y, 150, 150, 255, 200);
+      return;
+    }
+
     // Default: color bullet (shotgun pellets, etc.)
     if (w.color > 0) {
       const c = PALETTE[w.color] || [200, 200, 200];
@@ -488,6 +665,43 @@ class Renderer {
       this.setPixel(tx, ty, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 255);
     } else {
       this.setPixel(x, y, 255, 255, 255, 255);
+    }
+  }
+
+  renderPortal(p) {
+    const x = Math.floor(p.x);
+    const y = Math.floor(p.y);
+    const wobble = Math.sin(this.animTick * 0.2) * 2;
+    // Draw portal ring
+    for (let a = 0; a < 24; a++) {
+      const angle = (a / 24) * Math.PI * 2;
+      const px = Math.floor(x + Math.cos(angle) * (6 + wobble));
+      const py = Math.floor(y + Math.sin(angle) * (6 + wobble));
+      this.setPixel(px, py, 100, 150, 255, 255);
+      this.setPixel(px, py + 1, 50, 100, 200, 200);
+    }
+  }
+
+  renderBlackHole(bh) {
+    const x = Math.floor(bh.x);
+    const y = Math.floor(bh.y);
+    const r = Math.max(3, bh.radius);
+    // Draw dark circle with swirling edge
+    for (let a = 0; a < 32; a++) {
+      const angle = (a / 32) * Math.PI * 2 + this.animTick * 0.05;
+      const dist = r * (0.8 + Math.random() * 0.4);
+      const px = Math.floor(x + Math.cos(angle) * dist);
+      const py = Math.floor(y + Math.sin(angle) * dist);
+      const intensity = bh.pullOnly ? 100 : 50;
+      this.setPixel(px, py, intensity, 0, intensity, 255);
+    }
+    // Dark center
+    for (let dy = -Math.floor(r * 0.5); dy <= Math.floor(r * 0.5); dy++) {
+      for (let dx = -Math.floor(r * 0.5); dx <= Math.floor(r * 0.5); dx++) {
+        if (dx * dx + dy * dy <= r * r * 0.25) {
+          this.setPixel(x + dx, y + dy, 0, 0, 0, 255);
+        }
+      }
     }
   }
 
@@ -595,6 +809,191 @@ class Renderer {
     }
   }
 
+  renderMinimap(state, map, mapColors) {
+    if (!state || !map) return;
+    const ctx = this.ctx;
+    const s = this.scale;
+    const mmW = 80 * s;
+    const mmH = 55 * s;
+    const mmX = this.canvas.width - mmW - 4 * s;
+    const mmY = this.canvas.height / 2 - mmH / 2;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(mmX - 1, mmY - 1, mmW + 2, mmH + 2);
+
+    // Draw map (sampled)
+    const sampleW = Math.floor(80);
+    const sampleH = Math.floor(55);
+    const pw = mmW / sampleW;
+    const ph = mmH / sampleH;
+    const mw = this.gameWidth, mh = this.gameHeight;
+    const stepX = mw / sampleW;
+    const stepY = mh / sampleH;
+
+    for (let sy = 0; sy < sampleH; sy++) {
+      for (let sx = 0; sx < sampleW; sx++) {
+        const mapX = Math.floor(sx * stepX);
+        const mapY = Math.floor(sy * stepY);
+        const idx = mapY * mw + mapX;
+        const mat = map[idx];
+        if (mat !== 0) {
+          const colIdx = (mapColors && mapColors[idx]) || 80;
+          const col = PALETTE[colIdx] || [100, 80, 60];
+          ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+          ctx.fillRect(mmX + sx * pw, mmY + sy * ph, pw, ph);
+        }
+      }
+    }
+
+    // Draw worm dots
+    if (state.worms) {
+      for (const id in state.worms) {
+        const w = state.worms[id];
+        if (!w.alive) continue;
+        const wx = mmX + (w.x / mw) * mmW;
+        const wy = mmY + (w.y / mh) * mmH;
+        const colors = WORM_COLORS[w.color % WORM_COLORS.length].crosshair;
+        ctx.fillStyle = `rgb(${colors[0]},${colors[1]},${colors[2]})`;
+        ctx.fillRect(wx - 1, wy - 1, 3, 3);
+      }
+    }
+
+    // Border
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mmX, mmY, mmW, mmH);
+  }
+
+  renderDamageNumbers(damageNumbers) {
+    if (!damageNumbers || !damageNumbers.length) return;
+    const ctx = this.ctx;
+    const pxW = this.canvas.width / this.viewWidth;
+    const pxH = this.canvas.height / this.viewHeight;
+
+    for (const dn of damageNumbers) {
+      const sx = (dn.x - this.camX) * pxW;
+      const sy = (dn.y - this.camY) * pxH;
+      const alpha = Math.min(1, dn.timer / 30);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = `bold ${Math.max(8, 7 * this.scale)}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = dn.value >= 20 ? '#FF4444' : dn.value >= 10 ? '#FFAA44' : '#FFFFFF';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2 * this.scale;
+      ctx.strokeText(`-${dn.value}`, sx, sy);
+      ctx.fillText(`-${dn.value}`, sx, sy);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+  }
+
+  renderStreakMessages(streakMessages) {
+    if (!streakMessages || !streakMessages.length) return;
+    const ctx = this.ctx;
+    const s = this.scale;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+
+    // Show most recent messages
+    const recent = streakMessages.slice(-3);
+    for (let i = 0; i < recent.length; i++) {
+      const sm = recent[i];
+      const alpha = Math.min(1, sm.timer / 30);
+      const y = ch * 0.35 + i * 20 * s;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${sm.isLocal ? 16 * s : 11 * s}px monospace`;
+      ctx.fillStyle = sm.isLocal ? '#FFD700' : '#FF8800';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2 * s;
+      const text = sm.isLocal ? sm.text : `${sm.name}: ${sm.text}`;
+      ctx.strokeText(text, cw / 2, y);
+      ctx.fillText(text, cw / 2, y);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+  }
+
+  renderCountdown(countdown) {
+    if (countdown <= 0) return;
+    const ctx = this.ctx;
+    const s = this.scale;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+
+    const secs = Math.ceil(countdown / 70);
+    const alpha = 0.7 + Math.sin(this.animTick * 0.3) * 0.3;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = 'center';
+    ctx.font = `bold ${40 * s}px monospace`;
+    ctx.fillStyle = secs <= 1 ? '#FF4444' : '#FFD700';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4 * s;
+    ctx.strokeText(secs.toString(), cw / 2, ch / 2);
+    ctx.fillText(secs.toString(), cw / 2, ch / 2);
+    ctx.font = `${10 * s}px monospace`;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('GET READY!', cw / 2, ch / 2 + 28 * s);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  renderPostRoundStats(stats, localPlayerId) {
+    const ctx = this.ctx;
+    const s = this.scale;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.92)';
+    ctx.fillRect(cw * 0.05, ch * 0.05, cw * 0.9, ch * 0.9);
+
+    // Title
+    ctx.fillStyle = '#FFD700';
+    ctx.font = `bold ${14 * s}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('POST-ROUND STATS', cw / 2, ch * 0.12);
+
+    // Headers
+    ctx.font = `${7 * s}px monospace`;
+    ctx.fillStyle = '#888';
+    ctx.fillText('PLAYER', cw * 0.15, ch * 0.2);
+    ctx.fillText('KILLS', cw * 0.38, ch * 0.2);
+    ctx.fillText('DEATHS', cw * 0.5, ch * 0.2);
+    ctx.fillText('DAMAGE', cw * 0.62, ch * 0.2);
+    ctx.fillText('ACC%', cw * 0.74, ch * 0.2);
+    ctx.fillText('FAV WEAPON', cw * 0.83, ch * 0.2);
+
+    const entries = Object.entries(stats).sort((a, b) => b[1].kills - a[1].kills);
+    ctx.font = `${8 * s}px monospace`;
+
+    for (let i = 0; i < entries.length; i++) {
+      const [id, st] = entries[i];
+      const y = ch * 0.25 + i * 14 * s;
+      const isLocal = parseInt(id) === localPlayerId;
+      ctx.fillStyle = isLocal ? '#FFD700' : '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.fillText(st.name, cw * 0.15, y);
+      ctx.fillText(st.kills, cw * 0.38, y);
+      ctx.fillText(st.deaths, cw * 0.5, y);
+      ctx.fillText(st.damageDealt, cw * 0.62, y);
+      ctx.fillText(`${st.accuracy}%`, cw * 0.74, y);
+      ctx.font = `${6 * s}px monospace`;
+      ctx.fillText(st.favouriteWeapon, cw * 0.83, y);
+      ctx.font = `${8 * s}px monospace`;
+    }
+
+    ctx.fillStyle = '#888';
+    ctx.font = `${7 * s}px monospace`;
+    ctx.fillText('Press ESC to dismiss', cw / 2, ch * 0.92);
+    ctx.textAlign = 'left';
+  }
+
   renderHUD(state, localPlayerId) {
     const ctx = this.ctx;
     const s = this.scale;
@@ -666,6 +1065,13 @@ class Renderer {
       ctx.fillRect(24 * s, 7 * s, 80 * s * hpPct, 10 * s);
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(`${Math.ceil(w.health)}`, 80 * s, 14 * s);
+
+      // Frozen indicator
+      if (w.frozenTimer > 0) {
+        ctx.fillStyle = '#88CCFF';
+        ctx.font = `${6 * s}px monospace`;
+        ctx.fillText('FROZEN', 8 * s, 26 * s);
+      }
     }
 
     // Scoreboard (top right)
@@ -677,14 +1083,13 @@ class Renderer {
     scores.sort((a, b) => b.kills - a.kills);
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    const scoreW = 120 * s;
+    const scoreW = 130 * s;
     ctx.fillRect(this.canvas.width - scoreW - 4 * s, 4 * s, scoreW, (4 + scores.length * 10) * s);
     ctx.font = `${7 * s}px monospace`;
 
     for (let i = 0; i < scores.length; i++) {
       const sc = scores[i];
       const isLocal = sc.id === localPlayerId;
-      ctx.fillStyle = isLocal ? '#FFD700' : '#FFFFFF';
       const colors = WORM_COLORS[state.worms[sc.id].color % WORM_COLORS.length];
       const cc = colors.crosshair;
       ctx.fillStyle = `rgb(${cc[0]},${cc[1]},${cc[2]})`;

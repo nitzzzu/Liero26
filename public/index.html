@@ -64,6 +64,7 @@
 
       <div class="create-room-bar">
         <input type="text" id="room-name-input" placeholder="Room name..." maxlength="24">
+        <input type="password" id="room-password-input" placeholder="Password (optional)" maxlength="32">
         <select id="room-mode-select">
           <option value="0">Deathmatch</option>
           <option value="1">Team Deathmatch</option>
@@ -81,6 +82,23 @@
     </div>
   </div>
 
+  <!-- CHARACTER SELECT SCREEN -->
+  <div id="character-screen" class="screen" style="display:none">
+    <div class="character-container">
+      <h2>🐛 CHOOSE YOUR CHARACTER</h2>
+      <p class="weapon-instructions">Select your character. Your choice is remembered for next time.</p>
+
+      <div id="character-list" class="character-grid"></div>
+
+      <div class="weapon-actions">
+        <button class="btn btn-primary btn-large" onclick="startGameFromCharacterSelect()">
+          ⚔️ SELECT WEAPONS
+        </button>
+        <button class="btn btn-secondary" onclick="client.showLobby()">← BACK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- WEAPON SELECT SCREEN -->
   <div id="weapon-screen" class="screen" style="display:none">
     <div class="weapon-container">
@@ -95,7 +113,7 @@
         <button class="btn btn-primary btn-large" onclick="startGameFromWeaponSelect()">
           🎮 START GAME
         </button>
-        <button class="btn btn-secondary" onclick="client.showLobby()">← BACK</button>
+        <button class="btn btn-secondary" onclick="client.showCharacterSelectScreen()">← BACK</button>
       </div>
     </div>
   </div>
@@ -104,6 +122,7 @@
   <div id="game-screen" class="screen" style="display:none">
     <canvas id="game-canvas"></canvas>
     <div id="chat-container" class="chat-container" style="display:none"></div>
+    <div id="ping-display" class="ping-display">0ms</div>
 
     <!-- Touch controls (shown only on touch devices via JS) -->
     <div id="touch-controls" class="touch-controls" style="display:none">
