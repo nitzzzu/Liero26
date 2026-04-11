@@ -2,8 +2,7 @@
 
 ## Overview
 
-This document collects ideas for improving and expanding Liero26, organised by category.  
-Sources: original Liero community, [WebLiero mods by KangaRoo1372](https://github.com/KangaRoo1372/webliero), [WebLiero GitLab](https://gitlab.com/webliero), and general game-dev good practice.
+This document collects ideas for improving and expanding Liero26, organised by category.
 
 ---
 
@@ -13,7 +12,6 @@ Sources: original Liero community, [WebLiero mods by KangaRoo1372](https://githu
 - [ ] **Map delta streaming** — terrain destruction is not synced to late-joining clients or after reconnect. Send a compressed terrain diff or re-send full map on reconnect.
 - [ ] **Input prediction / lag compensation** — currently the client just displays the last server snapshot; fast movement feels laggy. Add client-side prediction with server reconciliation.
 - [ ] **Respawn invincibility** — newly spawned worms can be instantly killed. Add ~60-tick invincibility flash.
-- [ ] **Server port mismatch** — `README.md` says port 3000 but `server/index.js` defaults to 3001. Align to one value.
 - [ ] **Spectator mode** — `player.spectating` flag exists but is never acted on; implement spectator-only camera.
 
 ### 1.2 Gameplay
