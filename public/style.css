@@ -474,6 +474,132 @@ kbd {
   50%, 100% { opacity: 0; }
 }
 
+/* ===== TOUCH CONTROLS ===== */
+.touch-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 16px;
+  display: none; /* shown via JS on touch devices */
+  justify-content: space-between;
+  align-items: flex-end;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.touch-dpad,
+.touch-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: all;
+}
+
+.dpad-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.dpad-gap {
+  width: 44px;
+  height: 44px;
+}
+
+.touch-row {
+  display: flex;
+  gap: 8px;
+}
+
+.touch-btn {
+  width: 52px;
+  height: 52px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 16px;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.touch-btn:active {
+  background: rgba(0, 200, 0, 0.45);
+  border-color: #00ff00;
+}
+
+.btn-fire   { border-color: rgba(255, 80,  80,  0.5); color: #ff5050; }
+.btn-jump   { border-color: rgba(80,  200, 255, 0.5); color: #50c8ff; }
+.btn-change { border-color: rgba(255, 215, 0,   0.5); color: #ffd700; }
+.btn-dig    { border-color: rgba(180, 120, 60,  0.5); color: #b4783c; }
+
+/* ===== MOBILE RESPONSIVE ===== */
+@media (max-width: 600px) {
+  .screen {
+    align-items: flex-start;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .menu-container {
+    padding: 20px 16px;
+  }
+
+  .game-logo h1 {
+    font-size: 48px;
+    letter-spacing: 4px;
+  }
+
+  .logo-worm {
+    width: 22px;
+    height: 22px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    margin-bottom: 20px;
+  }
+
+  .btn-large {
+    padding: 14px 20px;
+    font-size: 16px;
+  }
+
+  .controls-info {
+    display: none;
+  }
+
+  /* Lobby */
+  .create-room-bar {
+    flex-direction: column;
+  }
+
+  .create-room-bar select {
+    flex: 1;
+  }
+
+  /* Weapon screen */
+  .weapon-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    max-height: none;
+  }
+
+  .weapon-actions {
+    flex-direction: column;
+  }
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

@@ -64,6 +64,7 @@ class LieroClient {
     // Set up input
     document.addEventListener('keydown', (e) => this.onKeyDown(e));
     document.addEventListener('keyup', (e) => this.onKeyUp(e));
+    this.initTouchControls();
 
     // Show menu
     this.showMenu();
@@ -262,6 +263,9 @@ class LieroClient {
   }
 
   onKeyDown(e) {
+    // Let the browser handle typing in any text input normally
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
     if (this.chatOpen) {
       if (e.key === 'Enter') {
         if (this.chatInput.trim()) {
@@ -321,6 +325,8 @@ class LieroClient {
   }
 
   onKeyUp(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
     if (e.key === 'Tab') {
       this.showScoreboard = false;
       e.preventDefault();
@@ -339,24 +345,54 @@ class LieroClient {
     };
 
     for (const [code, action] of Object.entries(this.bindings)) {
-      if (this.keys[code]) {
-        newInput[action] = true;
+      if (this.keys[code]) newInput[action] = true;
+    }
+
+    // Merge touch state
+    if (this.touchState) {
+      for (const action of Object.keys(newInput)) {
+        if (this.touchState[action]) newInput[action] = true;
       }
     }
 
     // Check if changed
     let changed = false;
     for (const key of Object.keys(newInput)) {
-      if (newInput[key] !== this.input[key]) {
-        changed = true;
-        break;
-      }
+      if (newInput[key] !== this.input[key]) { changed = true; break; }
     }
 
     if (changed) {
       this.input = newInput;
       this.send({ type: 'input', input: this.input });
     }
+  }
+
+  initTouchControls() {
+    this.touchState = {};
+    const controls = document.getElementById('touch-controls');
+    if (!controls) return;
+
+    // Only show on actual touch devices
+    if (!('ontouchstart' in window) && !navigator.maxTouchPoints) return;
+    controls.style.display = 'flex';
+
+    controls.querySelectorAll('[data-action]').forEach(btn => {
+      const action = btn.dataset.action;
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        this.touchState[action] = true;
+        this.updateInput();
+      }, { passive: false });
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        this.touchState[action] = false;
+        this.updateInput();
+      }, { passive: false });
+      btn.addEventListener('touchcancel', () => {
+        this.touchState[action] = false;
+        this.updateInput();
+      });
+    });
   }
 
   send(msg) {

@@ -100,6 +100,29 @@
   <div id="game-screen" class="screen" style="display:none">
     <canvas id="game-canvas"></canvas>
     <div id="chat-container" class="chat-container" style="display:none"></div>
+
+    <!-- Touch controls (shown only on touch devices via JS) -->
+    <div id="touch-controls" class="touch-controls" style="display:none">
+      <div class="touch-dpad">
+        <button class="touch-btn dpad-top" data-action="up">▲</button>
+        <div class="dpad-row">
+          <button class="touch-btn dpad-left" data-action="left">◀</button>
+          <div class="dpad-gap"></div>
+          <button class="touch-btn dpad-right" data-action="right">▶</button>
+        </div>
+        <button class="touch-btn dpad-bot" data-action="down">▼</button>
+      </div>
+      <div class="touch-actions">
+        <div class="touch-row">
+          <button class="touch-btn btn-fire"   data-action="fire">FIRE</button>
+          <button class="touch-btn btn-jump"   data-action="jump">JUMP</button>
+        </div>
+        <div class="touch-row">
+          <button class="touch-btn btn-change" data-action="change">WPN</button>
+          <button class="touch-btn btn-dig"    data-action="dig">DIG</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Scripts -->
