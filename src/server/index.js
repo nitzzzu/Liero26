@@ -4,7 +4,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const CONSTANTS = require('../shared/constants');
-const { GameEngine } = require('../shared/engine');
+const { GameEngine, Bot } = require('../shared/engine');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +24,7 @@ class Room {
   constructor(id, name, settings) {
     this.id = id;
     this.name = name;
+    this.password = settings.password || null;
     this.engine = new GameEngine();
     this.players = new Map();
     this.inputs = new Map();
@@ -31,22 +32,28 @@ class Room {
       gameMode: settings.gameMode || CONSTANTS.MODE.DEATHMATCH,
       scoreLimit: settings.scoreLimit || CONSTANTS.DEFAULTS.SCORE_LIMIT,
       timeLimit: settings.timeLimit || CONSTANTS.DEFAULTS.TIME_LIMIT,
+      goriness: settings.goriness || CONSTANTS.DEFAULTS.GORINESS,
       ...settings,
     };
     this.engine.gameMode = this.settings.gameMode;
     this.engine.scoreLimit = this.settings.scoreLimit;
     this.engine.timeLimit = this.settings.timeLimit;
     this.engine.timeLeft = this.settings.timeLimit * CONSTANTS.TICK_RATE;
+    this.engine.goriness = this.settings.goriness;
     this.engine.generateMap();
     this.running = false;
     this.interval = null;
     this.lastTick = Date.now();
     this.chatHistory = [];
+    this.botIds = new Set();
+    this.pingTimers = new Map(); // playerId -> { sent: timestamp, latency: ms }
+    this.postRoundStats = null;
   }
 
-  addPlayer(ws, playerName) {
+  addPlayer(ws, playerName, character) {
     const playerId = ws._playerId;
     const worm = this.engine.addWorm(playerId, playerName);
+    worm.character = character || 'Pink_Monster';
     this.players.set(playerId, { ws, name: playerName, spectating: false });
     this.inputs.set(playerId, {
       left: false, right: false, up: false, down: false,
@@ -72,13 +79,33 @@ class Room {
       name: playerName,
       worm: {
         id: worm.id, name: worm.name, x: worm.x, y: worm.y,
-        health: worm.health, color: worm.color,
+        health: worm.health, color: worm.color, character: worm.character,
       },
     }, playerId);
 
     if (!this.running && this.players.size >= 1) {
       this.start();
     }
+  }
+
+  addBot(botName) {
+    const botId = -(nextBotId++);
+    const worm = new Bot(botId, botName || `Bot ${-botId}`, 0, 0);
+    const pos = this.engine.findSpawnPoint();
+    worm.x = pos.x; worm.y = pos.y;
+    worm.color = (this.engine.worms.size) % 6;
+    this.engine.worms.set(botId, worm);
+    this.inputs.set(botId, worm.botInput);
+    this.botIds.add(botId);
+
+    this.broadcast({
+      type: 'player_joined',
+      playerId: botId,
+      name: worm.name,
+      worm: { id: worm.id, name: worm.name, x: worm.x, y: worm.y, health: worm.health, color: worm.color, character: 'Dude_Monster' },
+    });
+
+    if (!this.running && this.players.size >= 1) this.start();
   }
 
   removePlayer(playerId) {
@@ -110,7 +137,27 @@ class Room {
 
       while (accumulator >= tickInterval) {
         accumulator -= tickInterval;
+
+        // Update bot inputs
+        for (const botId of this.botIds) {
+          const bot = this.engine.worms.get(botId);
+          if (bot && bot.isBot) {
+            const inp = bot.updateBotAI(this.engine);
+            this.inputs.set(botId, inp);
+          }
+        }
+
         this.engine.update(this.inputs);
+
+        // Send map deltas if any changed cells
+        if (this.engine.changedCells.length > 0) {
+          const cells = this.engine.changedCells.map(idx => ({
+            idx,
+            mat: this.engine.map[idx],
+            color: this.engine.mapColors[idx],
+          }));
+          this.broadcast({ type: 'map_delta', cells });
+        }
 
         // Send state periodically
         if (this.engine.tick % CONSTANTS.NET.SNAPSHOT_RATE === 0) {
@@ -123,22 +170,63 @@ class Room {
           this.broadcast({ type: 'events', events: this.engine.events });
         }
 
-        // Handle map changes
-        if (this.engine.tick % 10 === 0) {
-          // Send map diff periodically (only changed areas)
+        // Ping all players periodically
+        if (this.engine.tick % (CONSTANTS.TICK_RATE * 2) === 0) {
+          for (const [pid, player] of this.players) {
+            try {
+              if (player.ws.readyState === 1) {
+                const pingTs = Date.now();
+                this.pingTimers.set(pid, { sent: pingTs });
+                player.ws.send(JSON.stringify({ type: 'ping', ts: pingTs }));
+              }
+            } catch (e) { /* ignore */ }
+          }
         }
 
         // Game over handling
         if (this.engine.gameOver) {
-          this.broadcast({ type: 'game_over', winner: this.engine.winner, state: this.engine.getState() });
-          // Auto restart after 5 seconds
-          setTimeout(() => this.restart(), 5000);
+          // Collect post-round stats
+          this.postRoundStats = this._collectStats();
+          this.broadcast({
+            type: 'game_over',
+            winner: this.engine.winner,
+            state: this.engine.getState(),
+            stats: this.postRoundStats,
+          });
+          // Auto restart after 8 seconds
+          setTimeout(() => this.restart(), 8000);
           this.running = false;
           clearInterval(this.interval);
           return;
         }
       }
     }, Math.floor(tickInterval / 2));
+  }
+
+  _collectStats() {
+    const stats = {};
+    for (const [id, worm] of this.engine.worms) {
+      if (this.botIds.has(id)) continue;
+      let favWeapon = null;
+      let favKills = 0;
+      if (worm.weaponKills) {
+        for (const [wid, kills] of Object.entries(worm.weaponKills)) {
+          if (kills > favKills) { favKills = kills; favWeapon = parseInt(wid); }
+        }
+      }
+      const WEAPONS = require('../shared/weapons');
+      stats[id] = {
+        name: worm.name,
+        kills: worm.kills,
+        deaths: worm.deaths,
+        damageDealt: worm.totalDamageDealt || 0,
+        shotsFired: worm.shotsFired || 0,
+        shotsHit: worm.shotsHit || 0,
+        accuracy: worm.shotsFired > 0 ? Math.round((worm.shotsHit / worm.shotsFired) * 100) : 0,
+        favouriteWeapon: favWeapon !== null ? WEAPONS[favWeapon].name : 'N/A',
+      };
+    }
+    return stats;
   }
 
   stop() {
@@ -155,15 +243,22 @@ class Room {
     this.engine.scoreLimit = this.settings.scoreLimit;
     this.engine.timeLimit = this.settings.timeLimit;
     this.engine.timeLeft = this.settings.timeLimit * CONSTANTS.TICK_RATE;
+    this.engine.goriness = this.settings.goriness;
     this.engine.generateMap();
 
-    // Re-add all players
+    // Re-add all human players
     for (const [id, player] of this.players) {
       this.engine.addWorm(id, player.name);
       this.inputs.set(id, {
         left: false, right: false, up: false, down: false,
         fire: false, jump: false, change: false, dig: false,
       });
+    }
+
+    // Re-add bots
+    this.botIds.clear();
+    for (let i = 0; i < (this.settings.botCount || 0); i++) {
+      this.addBot();
     }
 
     // Send new map to all
@@ -190,6 +285,20 @@ class Room {
     }
   }
 
+  handlePong(playerId, ts) {
+    const timer = this.pingTimers.get(playerId);
+    if (timer) {
+      const latency = Date.now() - ts;
+      timer.latency = latency;
+      const player = this.players.get(playerId);
+      if (player && player.ws.readyState === 1) {
+        try {
+          player.ws.send(JSON.stringify({ type: 'latency', latency }));
+        } catch (e) { /* ignore */ }
+      }
+    }
+  }
+
   handleChat(playerId, message) {
     const player = this.players.get(playerId);
     if (!player) return;
@@ -209,12 +318,20 @@ class Room {
     const worm = this.engine.worms.get(playerId);
     if (worm && Array.isArray(weapons) && weapons.length === 5) {
       // Validate weapon IDs
-      const valid = weapons.every(w => w >= 0 && w < 40);
+      const WEAPONS = require('../shared/weapons');
+      const valid = weapons.every(w => w >= 0 && w < WEAPONS.length);
       if (valid) {
         worm.weapons = weapons;
         worm.initAmmo();
       }
     }
+  }
+
+  handleSpectate(playerId, spectating) {
+    const player = this.players.get(playerId);
+    const worm = this.engine.worms.get(playerId);
+    if (player) player.spectating = spectating;
+    if (worm) worm.spectating = spectating;
   }
 
   broadcast(data, excludeId) {
@@ -234,12 +351,14 @@ class Room {
 const rooms = new Map();
 let nextPlayerId = 1;
 let nextRoomId = 1;
+let nextBotId = 1;
 
 // Create default room
 const defaultRoom = new Room(nextRoomId++, 'Main Arena', {
   gameMode: CONSTANTS.MODE.DEATHMATCH,
   scoreLimit: 15,
   timeLimit: 300,
+  goriness: 2,
 });
 rooms.set(defaultRoom.id, defaultRoom);
 
@@ -254,17 +373,20 @@ app.get('/api/rooms', (req, res) => {
       maxPlayers: CONSTANTS.NET.MAX_PLAYERS_PER_ROOM,
       gameMode: CONSTANTS.MODE_NAMES[room.settings.gameMode],
       running: room.running,
+      hasPassword: !!room.password,
     });
   }
   res.json(roomList);
 });
 
 app.post('/api/rooms', express.json(), (req, res) => {
-  const { name, gameMode, scoreLimit, timeLimit } = req.body || {};
+  const { name, gameMode, scoreLimit, timeLimit, password, goriness } = req.body || {};
   const room = new Room(nextRoomId++, name || `Room ${nextRoomId}`, {
     gameMode: gameMode || 0,
     scoreLimit: scoreLimit || 15,
     timeLimit: timeLimit || 300,
+    password: password || null,
+    goriness: goriness || 2,
   });
   rooms.set(room.id, room);
   res.json({ id: room.id, name: room.name });
@@ -275,6 +397,7 @@ wss.on('connection', (ws) => {
   const playerId = nextPlayerId++;
   ws._playerId = playerId;
   ws._room = null;
+  ws._lastRoom = null; // For reconnection
 
   ws.on('message', (data) => {
     try {
@@ -292,9 +415,39 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
             return;
           }
+          // Password check
+          if (room.password && msg.password !== room.password) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Incorrect password' }));
+            return;
+          }
           ws._room = room;
+          ws._lastRoomId = roomId;
+          ws._lastRoomPassword = msg.password || null;
           const playerName = (msg.name || `Player ${playerId}`).substring(0, 20);
-          room.addPlayer(ws, playerName);
+          const character = msg.character || 'Pink_Monster';
+          room.addPlayer(ws, playerName, character);
+          break;
+        }
+        case 'rejoin': {
+          // Reconnect to last room
+          const roomId = msg.roomId || ws._lastRoomId;
+          if (!roomId) {
+            ws.send(JSON.stringify({ type: 'error', message: 'No room to rejoin' }));
+            return;
+          }
+          const room = rooms.get(roomId);
+          if (!room) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Room no longer exists' }));
+            return;
+          }
+          if (room.password && msg.password !== room.password) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Incorrect password' }));
+            return;
+          }
+          ws._room = room;
+          ws._lastRoomId = roomId;
+          const playerName = (msg.name || `Player ${playerId}`).substring(0, 20);
+          room.addPlayer(ws, playerName, msg.character || 'Pink_Monster');
           break;
         }
         case 'input': {
@@ -315,11 +468,31 @@ wss.on('connection', (ws) => {
           }
           break;
         }
+        case 'spectate': {
+          if (ws._room) {
+            ws._room.handleSpectate(playerId, !!msg.spectating);
+          }
+          break;
+        }
+        case 'pong': {
+          if (ws._room) {
+            ws._room.handlePong(playerId, msg.ts);
+          }
+          break;
+        }
+        case 'add_bot': {
+          if (ws._room) {
+            ws._room.addBot(msg.name);
+          }
+          break;
+        }
         case 'create_room': {
           const newRoom = new Room(nextRoomId++, msg.name || `Room ${nextRoomId}`, {
             gameMode: msg.gameMode || 0,
             scoreLimit: msg.scoreLimit || 15,
             timeLimit: msg.timeLimit || 300,
+            password: msg.password || null,
+            goriness: msg.goriness || 2,
           });
           rooms.set(newRoom.id, newRoom);
           ws.send(JSON.stringify({ type: 'room_created', roomId: newRoom.id, name: newRoom.name }));
@@ -333,6 +506,7 @@ wss.on('connection', (ws) => {
               maxPlayers: CONSTANTS.NET.MAX_PLAYERS_PER_ROOM,
               gameMode: CONSTANTS.MODE_NAMES[room.settings.gameMode],
               running: room.running,
+              hasPassword: !!room.password,
             });
           }
           ws.send(JSON.stringify({ type: 'room_list', rooms: roomList }));
@@ -362,6 +536,7 @@ wss.on('connection', (ws) => {
       id, name: room.name, players: room.players.size,
       maxPlayers: CONSTANTS.NET.MAX_PLAYERS_PER_ROOM,
       gameMode: CONSTANTS.MODE_NAMES[room.settings.gameMode],
+      hasPassword: !!room.password,
     });
   }
   ws.send(JSON.stringify({ type: 'room_list', rooms: roomList }));

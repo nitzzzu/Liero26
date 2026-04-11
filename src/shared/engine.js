@@ -55,10 +55,12 @@ class Particle {
     this.vx = vx;
     this.vy = vy;
     this.color = color;
-    this.life = life;
-    this.maxLife = life;
+    this.life = Math.ceil(life * CONSTANTS.BLOOD.LIFE_MULT);
+    this.maxLife = this.life;
     this.gravity = gravity || CONSTANTS.BLOOD.GRAVITY;
     this.active = true;
+    this.bounce = 0; // 0=no bounce, >0=bounce factor (percentage, like weapon bounce)
+    this.size = 1;   // pixel size for gibs
   }
 }
 
@@ -90,6 +92,7 @@ class Worm {
     this.health = CONSTANTS.WORM.HEALTH;
     this.alive = true;
     this.respawnTimer = 0;
+    this.invincibleTimer = 0;
     this.weapons = [0, 3, 10, 14, 28]; // default loadout
     this.currentWeapon = 0;
     this.ammo = [];
@@ -105,6 +108,16 @@ class Worm {
     this.digTimer = 0;
     this.stateAge = 0;
     this.color = 0;
+    this.character = 'Pink_Monster';
+    this.frozenTimer = 0;
+    this.streak = 0;
+    this.shieldActive = false;
+    this.shieldTimer = 0;
+    // Stats
+    this.totalDamageDealt = 0;
+    this.shotsFired = 0;
+    this.shotsHit = 0;
+    this.weaponKills = {}; // weaponId -> kill count
     this.initAmmo();
   }
 
@@ -143,6 +156,8 @@ class GameEngine {
     this.projectiles = [];
     this.particles = [];
     this.bonuses = [];
+    this.portals = []; // Portal Gun portal pairs
+    this.blackHoles = []; // Black hole entities
     this.nextProjectileId = 0;
     this.nextBonusId = 0;
     this.tick = 0;
@@ -157,6 +172,14 @@ class GameEngine {
     // Hold the flag
     this.flag = null;
     this.flagHolder = null;
+    // Countdown before match starts
+    this.countdown = CONSTANTS.DEFAULTS.COUNTDOWN_TICKS;
+    // Changed map cells this tick (for delta streaming)
+    this.changedCells = [];
+    // Blood stain counters per cell
+    this.bloodStainCounts = null;
+    // Goriness multiplier
+    this.goriness = CONSTANTS.DEFAULTS.GORINESS;
   }
 
   generateMap() {
@@ -166,6 +189,10 @@ class GameEngine {
     this.map = new Uint8Array(w * h);
     // Terrain colors for rendering (palette index per pixel)
     this.mapColors = new Uint8Array(w * h);
+    // Blood stain accumulator per cell
+    this.bloodStainCounts = new Uint8Array(w * h);
+    // Changed cells tracker (reset each update)
+    this.changedCells = [];
 
     // Perlin-like terrain generation using multiple octaves of noise
     const noise = this._generateNoise(w, h);
@@ -384,6 +411,7 @@ class GameEngine {
               this.map[idx] = CONSTANTS.MATERIAL.BACKGROUND;
               this.mapColors[idx] = 0;
               destroyed = true;
+              this.changedCells.push(idx);
             }
           }
         }
@@ -416,6 +444,18 @@ class GameEngine {
     if (this.gameOver) return;
     this.tick++;
     this.events = [];
+    this.changedCells = [];
+
+    // Round-start countdown
+    if (this.countdown > 0) {
+      this.countdown--;
+      if (this.countdown === 0) {
+        this.events.push({ type: 'countdown_done' });
+      }
+      // Still update time but block inputs
+      if (this.timeLeft > 0) this.timeLeft--;
+      return;
+    }
 
     // Update time
     if (this.timeLeft > 0) {
@@ -428,8 +468,17 @@ class GameEngine {
     // Process inputs for each worm
     for (const [id, worm] of this.worms) {
       const input = inputs.get(id);
-      if (worm.alive && input) {
-        this._updateWormInput(worm, input);
+      if (worm.alive && input && !worm.spectating) {
+        if (worm.frozenTimer <= 0) {
+          this._updateWormInput(worm, input);
+        } else {
+          // Frozen: only store edge states, block movement
+          input._prevLeft = input.left;
+          input._prevRight = input.right;
+          input._prevJump = input.jump;
+          input._prevChange = input.change;
+          input._prevFire = input.fire;
+        }
       }
       if (!worm.alive) {
         worm.respawnTimer--;
@@ -445,6 +494,13 @@ class GameEngine {
         this._updateWormPhysics(worm);
         this._updateRope(worm);
         this._updateWeaponLoading(worm);
+        // Timers
+        if (worm.invincibleTimer > 0) worm.invincibleTimer--;
+        if (worm.frozenTimer > 0) worm.frozenTimer--;
+        if (worm.shieldTimer > 0) {
+          worm.shieldTimer--;
+          if (worm.shieldTimer <= 0) worm.shieldActive = false;
+        }
       }
       worm.stateAge++;
     }
@@ -457,6 +513,12 @@ class GameEngine {
 
     // Update bonuses
     this._updateBonuses();
+
+    // Update portals
+    this._updatePortals();
+
+    // Update black holes
+    this._updateBlackHoles();
 
     // Bonus spawn
     this.bonusSpawnTimer++;
@@ -553,10 +615,18 @@ class GameEngine {
     // Friction
     worm.vx = (worm.vx * CONSTANTS.WORM.FRICTION_MULT) / CONSTANTS.WORM.FRICTION_DIV;
 
-    // Aim friction
+    // Aim friction and movement
     worm.aimVel = (worm.aimVel * CONSTANTS.WORM.AIM_FRICTION_MULT) / CONSTANTS.WORM.AIM_FRICTION_DIV;
     worm.aim += worm.aimVel;
-    worm.aim = Math.max(CONSTANTS.WORM.AIM_MIN, Math.min(CONSTANTS.WORM.AIM_MAX, worm.aim));
+
+    // Aim wrap-around / bounce-back at ±90°
+    if (worm.aim > CONSTANTS.WORM.AIM_MAX) {
+      worm.aim = CONSTANTS.WORM.AIM_MAX;
+      worm.aimVel = -Math.abs(worm.aimVel) * 0.3; // gentle bounce-back
+    } else if (worm.aim < CONSTANTS.WORM.AIM_MIN) {
+      worm.aim = CONSTANTS.WORM.AIM_MIN;
+      worm.aimVel = Math.abs(worm.aimVel) * 0.3;
+    }
 
     // Velocity clamping
     worm.vx = Math.max(-CONSTANTS.WORM.MAX_VEL_X, Math.min(CONSTANTS.WORM.MAX_VEL_X, worm.vx));
@@ -700,7 +770,17 @@ class GameEngine {
     // Delay check
     if (w.delay > 0 && worm.stateAge % Math.max(1, Math.floor(w.delay / 10)) !== 0) return;
 
+    // Shield mode - activate shield instead of firing
+    if (w.shieldMode) {
+      worm.shieldActive = true;
+      worm.shieldTimer = 70; // 1 second
+      worm.ammo[weapIdx]--;
+      if (worm.ammo[weapIdx] <= 0) worm.loadingLeft[weapIdx] = w.loadingTime;
+      return;
+    }
+
     worm.ammo[weapIdx]--;
+    worm.shotsFired = (worm.shotsFired || 0) + 1;
 
     // Start reload when ammo depleted
     if (worm.ammo[weapIdx] <= 0) {
@@ -714,6 +794,13 @@ class GameEngine {
     if (w.recoil > 0) {
       worm.vx -= dirX * w.recoil * 0.003;
       worm.vy -= dirY * w.recoil * 0.003;
+    }
+
+    // Portal Gun - create/pair portals
+    if (w.portalGun) {
+      this._firePortal(worm, dirX, dirY, w.speed / 100);
+      if (w.sound) this.events.push({ type: 'sound', sound: w.sound, x: worm.x, y: worm.y });
+      return;
     }
 
     // Spawn projectiles
@@ -742,7 +829,37 @@ class GameEngine {
         fx * speed,
         fy * speed
       );
+
+      // Boomerang: store owner position for return
+      if (w.boomerang) {
+        proj.boomerangOwnerX = worm.x;
+        proj.boomerangOwnerY = worm.y;
+        proj.boomerangReturning = false;
+        proj.boomerangHitOwner = false;
+      }
+
       this.projectiles.push(proj);
+    }
+
+    // Hellraider: spawns extra projectiles each firing
+    if (w.spawnsProjectiles) {
+      for (let s = 0; s < 3; s++) {
+        const angle = (Math.random() - 0.5) * 1.0;
+        const cos2 = Math.cos(angle), sin2 = Math.sin(angle);
+        const rfx = dirX * cos2 - dirY * sin2;
+        const rfy = dirX * sin2 + dirY * cos2;
+        const subProj = new Projectile(
+          this.nextProjectileId++,
+          worm.weapons[weapIdx],
+          worm.id,
+          worm.x + dirX * 5,
+          worm.y + dirY * 5,
+          rfx * (w.speed / 120),
+          rfy * (w.speed / 120)
+        );
+        subProj.isSubProjectile = true;
+        this.projectiles.push(subProj);
+      }
     }
 
     // Sound event
@@ -759,7 +876,31 @@ class GameEngine {
   _spawnShell(x, y, facing) {
     const vx = -facing * (0.3 + Math.random() * 0.5);
     const vy = -(0.5 + Math.random() * 1);
-    this.particles.push(new Particle(x, y, vx, vy, 75, 40, CONSTANTS.BLOOD.GRAVITY));
+    const p = new Particle(x, y, vx, vy, 75, 40, CONSTANTS.BLOOD.GRAVITY);
+    p.bounce = 60;
+    this.particles.push(p);
+  }
+
+  _firePortal(worm, dirX, dirY, speed) {
+    // Find existing portals from this worm
+    const existing = this.portals.filter(p => p.ownerId === worm.id && p.active);
+    if (existing.length >= 2) {
+      // Remove oldest portal
+      existing[0].active = false;
+      this.portals = this.portals.filter(p => p.active);
+    }
+    // Shoot a portal projectile - it becomes a portal when it hits terrain
+    const proj = new Projectile(
+      this.nextProjectileId++,
+      worm.weapons[worm.currentWeapon],
+      worm.id,
+      worm.x + dirX * 5,
+      worm.y + dirY * 5,
+      dirX * speed,
+      dirY * speed
+    );
+    proj.isPortalShot = true;
+    this.projectiles.push(proj);
   }
 
   _dig(worm) {
@@ -812,6 +953,27 @@ class GameEngine {
         }
       }
 
+      // Boomerang return logic
+      if (w.boomerang && !proj.isSubProjectile) {
+        const dx = proj.x - proj.boomerangOwnerX;
+        const dy = proj.y - proj.boomerangOwnerY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 80 && !proj.boomerangReturning) {
+          proj.boomerangReturning = true;
+        }
+        if (proj.boomerangReturning) {
+          // Pull toward owner
+          const owner = this.worms.get(proj.ownerId);
+          if (owner && owner.alive) {
+            const tdx = owner.x - proj.x;
+            const tdy = owner.y - proj.y;
+            const tlen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+            proj.vx += (tdx / tlen) * 0.15;
+            proj.vy += (tdy / tlen) * 0.15;
+          }
+        }
+      }
+
       // Move
       const newX = proj.x + proj.vx;
       const newY = proj.y + proj.vy;
@@ -822,11 +984,86 @@ class GameEngine {
         continue;
       }
 
+      // Portal shot - becomes a portal when it hits terrain
+      if (proj.isPortalShot) {
+        if (this.isSolid(newX, newY)) {
+          this.portals.push({
+            id: this.portals.length,
+            x: proj.x,
+            y: proj.y,
+            ownerId: proj.ownerId,
+            active: true,
+            pairIndex: this.portals.filter(p => p.ownerId === proj.ownerId && p.active).length,
+          });
+          proj.active = false;
+          this.events.push({ type: 'portal_placed', x: proj.x, y: proj.y, ownerId: proj.ownerId });
+          continue;
+        }
+        proj.x = newX;
+        proj.y = newY;
+        if (proj.x < 0 || proj.x >= this.mapWidth || proj.y < 0 || proj.y >= this.mapHeight) proj.active = false;
+        if (proj.age > 300) proj.active = false;
+        continue;
+      }
+
+      // Drill rocket: tunnels through dirt without exploding until it exits
+      if (w.drillThrough) {
+        if (this.isSolid(newX, newY)) {
+          const idx = Math.floor(newY) * this.mapWidth + Math.floor(newX);
+          const mat = this.map[idx];
+          if (mat !== CONSTANTS.MATERIAL.ROCK && mat !== CONSTANTS.MATERIAL.ROCK2 && mat !== CONSTANTS.MATERIAL.ROCK3) {
+            // Drill through dirt
+            this.map[idx] = CONSTANTS.MATERIAL.BACKGROUND;
+            this.mapColors[idx] = 0;
+            this.changedCells.push(idx);
+            proj.x = newX;
+            proj.y = newY;
+            proj.age++;
+            continue;
+          } else {
+            // Hit rock - explode
+            this._projectileExplode(proj, w);
+            continue;
+          }
+        }
+        // Check for worm collision
+        if (w.wormCollide) {
+          for (const [id, worm] of this.worms) {
+            if (!worm.alive) continue;
+            if (id === proj.ownerId && proj.age < 15) continue;
+            const dx = worm.x - newX;
+            const dy = worm.y - newY;
+            if (Math.sqrt(dx * dx + dy * dy) < CONSTANTS.WORM.RADIUS + 2) {
+              this._projectileHit(proj, w, worm);
+              break;
+            }
+          }
+          if (!proj.active) continue;
+        }
+        proj.x = newX;
+        proj.y = newY;
+        if (proj.age > 700) proj.active = false;
+        continue;
+      }
+
       // Check for worm collision
       if (w.wormCollide) {
         for (const [id, worm] of this.worms) {
           if (!worm.alive) continue;
           if (id === proj.ownerId && proj.age < 15) continue; // Don't hit self immediately
+          // Boomerang return - can hit owner
+          if (w.boomerang && id === proj.ownerId && !proj.boomerangReturning) continue;
+
+          // Shield blocks projectiles
+          if (worm.shieldActive && id !== proj.ownerId) {
+            const dx = worm.x - newX;
+            const dy = worm.y - newY;
+            if (Math.sqrt(dx * dx + dy * dy) < CONSTANTS.WORM.RADIUS + 4) {
+              proj.active = false;
+              this.events.push({ type: 'sound', sound: 'bump', x: worm.x, y: worm.y });
+              break;
+            }
+          }
 
           const dx = worm.x - newX;
           const dy = worm.y - newY;
@@ -848,6 +1085,12 @@ class GameEngine {
           if (this.isSolid(proj.x, newY)) proj.vy = -proj.vy * bounceF;
           // Sound
           this.events.push({ type: 'sound', sound: 'bump', x: proj.x, y: proj.y });
+
+          // Grasshopper: explodes on bounce with extra scatter
+          if (w.grasshopper && Math.abs(proj.vy) < 0.3 && proj.age > 5) {
+            this._projectileExplode(proj, w);
+            continue;
+          }
         } else if (w.groundCollide) {
           this._projectileExplode(proj, w);
           continue;
@@ -877,7 +1120,14 @@ class GameEngine {
           const dx = worm.x - proj.x;
           const dy = worm.y - proj.y;
           if (Math.sqrt(dx * dx + dy * dy) < w.detectDistance) {
-            this._projectileExplode(proj, w);
+            // Teleport mine: teleport victim
+            if (w.teleportOnTrigger) {
+              this._teleportWorm(worm);
+              proj.active = false;
+              this.events.push({ type: 'sound', sound: 'exp2', x: proj.x, y: proj.y });
+            } else {
+              this._projectileExplode(proj, w);
+            }
             break;
           }
         }
@@ -937,14 +1187,24 @@ class GameEngine {
   }
 
   _projectileHit(proj, w, worm) {
+    // Track hit for shooter stats
+    const owner = this.worms.get(proj.ownerId);
+    if (owner) owner.shotsHit = (owner.shotsHit || 0) + 1;
+
     // Direct damage
     if (w.hitDamage > 0) {
       this._damageWorm(worm, w.hitDamage, proj.ownerId);
     }
 
+    // Freeze effect
+    if (w.freezeOnHit) {
+      worm.frozenTimer = CONSTANTS.WORM.FREEZE_TICKS;
+      this.events.push({ type: 'frozen', targetId: worm.id });
+    }
+
     // Blood
     if (w.bloodOnHit > 0) {
-      this._spawnBlood(worm.x, worm.y, w.bloodOnHit);
+      this._spawnBlood(worm.x, worm.y, w.bloodOnHit * this.goriness);
     }
 
     // Blow away
@@ -954,6 +1214,11 @@ class GameEngine {
       worm.vy += proj.vy * force;
     }
 
+    // Chain Lightning: arc to nearest worms
+    if (w.chainLightning && !proj.chainCount) {
+      this._chainLightning(proj, w, worm, 3);
+    }
+
     if (w.exploSize > 0) {
       this._projectileExplode(proj, w);
     } else {
@@ -961,11 +1226,70 @@ class GameEngine {
     }
   }
 
+  _chainLightning(origProj, w, hitWorm, hopsLeft) {
+    if (hopsLeft <= 0) return;
+    // Find nearest other alive worm
+    let nearest = null;
+    let nearestDist = 120;
+    for (const [id, worm] of this.worms) {
+      if (!worm.alive || worm.id === hitWorm.id) continue;
+      const dx = worm.x - hitWorm.x;
+      const dy = worm.y - hitWorm.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist) { nearestDist = dist; nearest = worm; }
+    }
+    if (!nearest) return;
+    const dmg = Math.floor(w.hitDamage * 0.6);
+    this._damageWorm(nearest, dmg, origProj.ownerId);
+    this._spawnBlood(nearest.x, nearest.y, dmg * this.goriness);
+    this.events.push({ type: 'chain_lightning', fromX: hitWorm.x, fromY: hitWorm.y, toX: nearest.x, toY: nearest.y });
+    this._chainLightning(origProj, w, nearest, hopsLeft - 1);
+  }
+
+  _teleportWorm(worm) {
+    const pos = this.findSpawnPoint();
+    worm.x = pos.x;
+    worm.y = pos.y;
+    worm.vx = 0;
+    worm.vy = 0;
+    this.events.push({ type: 'teleport', id: worm.id, x: pos.x, y: pos.y });
+  }
+
   _projectileExplode(proj, w) {
     proj.active = false;
 
     const sizes = { tiny: 2, small: 4, medium: 8, large: 12, huge: 20 };
     const radius = sizes[w.createOnExp] || 6;
+
+    // Black Hole: spawn a growing gravity entity instead of normal explosion
+    if (w.blackHole) {
+      this.blackHoles.push({
+        id: this.blackHoles.length,
+        x: proj.x, y: proj.y,
+        ownerId: proj.ownerId,
+        radius: 5, maxRadius: 40,
+        age: 0, maxAge: 300,
+        active: true,
+      });
+      this.events.push({ type: 'sound', sound: 'exp3', x: proj.x, y: proj.y });
+      return;
+    }
+
+    // Gravity Bomb: spawn a gravity well entity
+    if (w.gravityWell) {
+      this.blackHoles.push({
+        id: this.blackHoles.length,
+        x: proj.x, y: proj.y,
+        ownerId: proj.ownerId,
+        radius: 60,
+        age: 0, maxAge: 210,
+        active: true,
+        pullOnly: true, // don't eat terrain
+      });
+      this.events.push({ type: 'explosion', x: proj.x, y: proj.y, radius: 4 });
+      this.events.push({ type: 'sound', sound: 'exp2', x: proj.x, y: proj.y });
+      return;
+    }
 
     // Destroy terrain
     this.destroyTerrain(proj.x, proj.y, radius);
@@ -1023,6 +1347,11 @@ class GameEngine {
       }
     }
 
+    // Explosion gibs for large explosions
+    if (radius >= 12) {
+      this._spawnExplosionGibs(proj.x, proj.y, radius);
+    }
+
     // Spawn sub-projectiles (cluster bombs, napalm, etc.)
     // Skip if this is already a sub-projectile to prevent exponential chaining
     if (w.spawnOnExplo && !proj.isSubProjectile) {
@@ -1037,6 +1366,20 @@ class GameEngine {
     // Sound
     const snd = radius >= 12 ? 'exp3' : radius >= 8 ? 'exp2' : 'exp4';
     this.events.push({ type: 'sound', sound: snd, x: proj.x, y: proj.y });
+  }
+
+  _spawnExplosionGibs(x, y, radius) {
+    const count = 4 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.5 + Math.random() * (radius * 0.08);
+      const colorIdx = [80, 81, 82, 83, 172, 173, 174, 175][Math.floor(Math.random() * 8)];
+      const p = new Particle(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed,
+        colorIdx, 60 + Math.floor(Math.random() * 60), CONSTANTS.BLOOD.GRAVITY);
+      p.size = 4;
+      p.bounce = 30;
+      this.particles.push(p);
+    }
   }
 
   _spawnSubProjectiles(proj, w) {
@@ -1071,8 +1414,15 @@ class GameEngine {
   }
 
   _damageWorm(worm, damage, attackerId) {
+    // Invincibility (respawn protection)
+    if (worm.invincibleTimer > 0) return;
+
     worm.health -= damage;
     worm.lastDamageBy = attackerId;
+
+    // Track damage dealt
+    const attacker = this.worms.get(attackerId);
+    if (attacker) attacker.totalDamageDealt = (attacker.totalDamageDealt || 0) + damage;
 
     this.events.push({
       type: 'damage', targetId: worm.id, damage, attackerId,
@@ -1086,13 +1436,30 @@ class GameEngine {
   _killWorm(worm, killerId) {
     worm.alive = false;
     worm.health = 0;
-    worm.respawnTimer = CONSTANTS.TICK_RATE * 3; // 3 seconds respawn
+    worm.respawnTimer = CONSTANTS.WORM.RESPAWN_TICKS;
     worm.deaths++;
     worm.rope.active = false;
     worm.rope.attached = false;
+    worm.streak = 0;
 
-    // Blood explosion
-    this._spawnBlood(worm.x, worm.y, 50);
+    // Blood explosion on death
+    this._spawnBlood(worm.x, worm.y, 50 * this.goriness);
+
+    // Gib system: scatter 6-12 large fleshy chunks
+    const gibCount = 6 + Math.floor(Math.random() * 7);
+    for (let i = 0; i < gibCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.8 + Math.random() * 2.5;
+      const colorIdx = [80, 81, 82, 83, 84, 85, 86, 87, 172, 173, 174, 175, 176, 177, 178, 179][
+        Math.floor(Math.random() * 16)
+      ];
+      const p = new Particle(worm.x, worm.y,
+        Math.cos(angle) * speed, Math.sin(angle) * speed,
+        colorIdx, 90 + Math.floor(Math.random() * 90), CONSTANTS.BLOOD.GRAVITY);
+      p.size = 3;
+      p.bounce = 40;
+      this.particles.push(p);
+    }
 
     // Score
     if (killerId !== worm.id && killerId >= 0) {
@@ -1102,8 +1469,32 @@ class GameEngine {
           // Team kill - no points
         } else {
           killer.kills++;
+          killer.streak = (killer.streak || 0) + 1;
+          // Track weapon kill
+          const weapId = worm.lastDamageBy !== undefined ? worm.lastDamageBy : -1;
+          // We track by weapon used - find what weapon the killer last fired
+          if (!killer.weaponKills) killer.weaponKills = {};
+          const lastWeap = killer.weapons[killer.currentWeapon];
+          killer.weaponKills[lastWeap] = (killer.weaponKills[lastWeap] || 0) + 1;
+
+          // Kill streak events
+          if (killer.streak === 2) {
+            this.events.push({ type: 'streak', playerId: killerId, streak: killer.streak, text: 'DOUBLE KILL' });
+          } else if (killer.streak === 3) {
+            this.events.push({ type: 'streak', playerId: killerId, streak: killer.streak, text: 'TRIPLE KILL' });
+          } else if (killer.streak >= 5) {
+            this.events.push({ type: 'streak', playerId: killerId, streak: killer.streak, text: 'RAMPAGE' });
+          }
         }
       }
+    }
+
+    // Bonus drop on kill (~17% chance, matching BONUS.DROP_CHANCE / 10000)
+    if (Math.floor(Math.random() * 10000) < CONSTANTS.BONUS.DROP_CHANCE) {
+      const type = Math.random() < 0.5 ? 0 : 1;
+      const bonus = new Bonus(this.nextBonusId++, worm.x, worm.y, type);
+      bonus.vy = -0.5;
+      this.bonuses.push(bonus);
     }
 
     // Last man standing - lose a life
@@ -1124,6 +1515,7 @@ class GameEngine {
 
     this.events.push({
       type: 'kill', killerId, victimId: worm.id,
+      weaponId: killerId >= 0 ? (this.worms.get(killerId) ? this.worms.get(killerId).weapons[this.worms.get(killerId).currentWeapon] : -1) : -1,
     });
 
     this._checkGameOver();
@@ -1137,6 +1529,10 @@ class GameEngine {
     worm.vy = 0;
     worm.health = CONSTANTS.WORM.HEALTH;
     worm.alive = true;
+    worm.invincibleTimer = CONSTANTS.WORM.INVINCIBLE_TICKS;
+    worm.frozenTimer = 0;
+    worm.shieldActive = false;
+    worm.shieldTimer = 0;
     worm.rope.active = false;
     worm.rope.attached = false;
     worm.initAmmo();
@@ -1145,7 +1541,7 @@ class GameEngine {
   }
 
   _spawnBlood(x, y, amount) {
-    const count = Math.min(amount, 20);
+    const count = Math.min(Math.floor(amount * this.goriness), 30);
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 0.3 + Math.random() * 1.5;
@@ -1173,16 +1569,52 @@ class GameEngine {
         continue;
       }
 
-      // Stick to terrain
+      // Stick to / bounce off terrain
       if (this.isSolid(p.x, p.y)) {
-        p.vx = 0;
-        p.vy = 0;
-        // Blood stains on terrain
-        if (p.color >= CONSTANTS.BLOOD.FIRST_COLOR && p.life > 5) {
-          const px = Math.floor(p.x);
-          const py = Math.floor(p.y);
-          if (px > 0 && px < this.mapWidth && py > 0 && py < this.mapHeight) {
-            // Don't color background, the blood sticks to terrain
+        if (p.bounce > 0) {
+          // Bouncing particle (shell casings, gibs)
+          const bounceF = p.bounce / 100;
+          if (this.isSolid(p.x, p.y - p.vy)) p.vx *= 0.7;
+          if (this.isSolid(p.x - p.vx, p.y)) p.vy = -p.vy * bounceF;
+          else p.vy = -p.vy * bounceF;
+          // Reduce bounce energy
+          if (Math.abs(p.vy) < 0.15) { p.bounce = 0; p.vx = 0; p.vy = 0; }
+        } else {
+          p.vx = 0;
+          p.vy = 0;
+          // Blood staining on terrain for blood particles
+          if (p.color >= CONSTANTS.BLOOD.FIRST_COLOR &&
+              p.color < CONSTANTS.BLOOD.FIRST_COLOR + CONSTANTS.BLOOD.NUM_COLORS) {
+            const px = Math.floor(p.x);
+            const py = Math.floor(p.y);
+            // Try to stain the cell just above (air cell adjacent to terrain)
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                const sx = px + dx;
+                const sy = py + dy;
+                if (sx <= 0 || sx >= this.mapWidth - 1 || sy <= 0 || sy >= this.mapHeight - 1) continue;
+                const idx = sy * this.mapWidth + sx;
+                const mat = this.map[idx];
+                if (mat === CONSTANTS.MATERIAL.DIRT || mat === CONSTANTS.MATERIAL.DIRT2) {
+                  // Stain this dirt cell
+                  if (!this.bloodStainCounts) break;
+                  this.bloodStainCounts[idx] = Math.min(255, (this.bloodStainCounts[idx] || 0) + 1);
+                  const stains = this.bloodStainCounts[idx];
+                  let newColor;
+                  if (stains >= CONSTANTS.BLOOD.STAIN_POOL_THRESHOLD * 3) {
+                    newColor = 83; // very dark blood
+                  } else if (stains >= CONSTANTS.BLOOD.STAIN_POOL_THRESHOLD) {
+                    newColor = 82; // dark blood
+                  } else {
+                    newColor = 80 + Math.floor(Math.random() * CONSTANTS.BLOOD.NUM_COLORS);
+                  }
+                  if (this.mapColors[idx] !== newColor) {
+                    this.mapColors[idx] = newColor;
+                    this.changedCells.push(idx);
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1258,6 +1690,85 @@ class GameEngine {
     const type = Math.random() < 0.6 ? 0 : 1; // 60% health, 40% weapon
     const bonus = new Bonus(this.nextBonusId++, pos.x, pos.y, type);
     this.bonuses.push(bonus);
+  }
+
+  _updatePortals() {
+    // Portals are static once placed; check if any worm walks into one
+    const activePairs = {};
+    for (const portal of this.portals) {
+      if (!portal.active) continue;
+      if (!activePairs[portal.ownerId]) activePairs[portal.ownerId] = [];
+      activePairs[portal.ownerId].push(portal);
+    }
+
+    for (const [, worm] of this.worms) {
+      if (!worm.alive) continue;
+      for (const ownerId in activePairs) {
+        const pair = activePairs[ownerId];
+        if (pair.length < 2) continue;
+        for (let pi = 0; pi < pair.length; pi++) {
+          const portal = pair[pi];
+          const other = pair[1 - pi];
+          const dx = worm.x - portal.x;
+          const dy = worm.y - portal.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 8 && !worm._recentlyTeleported) {
+            // Teleport through
+            worm.x = other.x;
+            worm.y = other.y;
+            worm._recentlyTeleported = 10;
+            this.events.push({ type: 'teleport', id: worm.id, x: other.x, y: other.y });
+            break;
+          }
+        }
+      }
+      if (worm._recentlyTeleported > 0) worm._recentlyTeleported--;
+    }
+  }
+
+  _updateBlackHoles() {
+    for (let i = this.blackHoles.length - 1; i >= 0; i--) {
+      const bh = this.blackHoles[i];
+      if (!bh.active) { this.blackHoles.splice(i, 1); continue; }
+      bh.age++;
+
+      if (bh.age > bh.maxAge) {
+        if (!bh.pullOnly) {
+          // Collapse: destroy terrain in final radius
+          this.destroyTerrain(bh.x, bh.y, bh.radius);
+          this.events.push({ type: 'explosion', x: bh.x, y: bh.y, radius: bh.radius });
+          this.events.push({ type: 'sound', sound: 'exp3', x: bh.x, y: bh.y });
+        }
+        bh.active = false;
+        continue;
+      }
+
+      // Grow (black hole only, not gravity well)
+      if (!bh.pullOnly && bh.radius < bh.maxRadius) {
+        bh.radius = 5 + Math.floor((bh.age / bh.maxAge) * bh.maxRadius);
+        // Eat terrain
+        this.destroyTerrain(bh.x, bh.y, Math.floor(bh.radius * 0.5));
+      }
+
+      // Pull worms and projectiles
+      for (const [, worm] of this.worms) {
+        if (!worm.alive) continue;
+        const dx = bh.x - worm.x;
+        const dy = bh.y - worm.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const pullRadius = bh.pullOnly ? bh.radius : bh.radius * 3;
+        if (dist < pullRadius) {
+          const force = bh.pullOnly ? 0.08 : (0.05 + bh.radius * 0.002);
+          worm.vx += (dx / dist) * force;
+          worm.vy += (dy / dist) * force;
+          // Damage if very close
+          if (dist < bh.radius && !bh.pullOnly && bh.age % 10 === 0) {
+            this._damageWorm(worm, 3, bh.ownerId);
+          }
+        }
+      }
+
+      this.events.push({ type: 'black_hole', x: bh.x, y: bh.y, radius: bh.radius, age: bh.age, maxAge: bh.maxAge });
+    }
   }
 
   _updateFlag() {
@@ -1371,6 +1882,16 @@ class GameEngine {
         currentWeapon: w.currentWeapon, weapons: w.weapons, ammo: w.ammo,
         loadingLeft: w.loadingLeft, kills: w.kills, deaths: w.deaths,
         lives: w.lives, team: w.team, showWeapon: w.showWeapon, color: w.color,
+        character: w.character || 'Pink_Monster',
+        invincibleTimer: w.invincibleTimer || 0,
+        frozenTimer: w.frozenTimer || 0,
+        shieldActive: w.shieldActive || false,
+        streak: w.streak || 0,
+        totalDamageDealt: w.totalDamageDealt || 0,
+        shotsFired: w.shotsFired || 0,
+        shotsHit: w.shotsHit || 0,
+        weaponKills: w.weaponKills || {},
+        spectating: w.spectating || false,
         rope: {
           active: w.rope.active, attached: w.rope.attached,
           x: w.rope.x, y: w.rope.y, anchorX: w.rope.anchorX, anchorY: w.rope.anchorY,
@@ -1387,11 +1908,18 @@ class GameEngine {
       bonuses: this.bonuses.map(b => ({
         id: b.id, x: b.x, y: b.y, type: b.type, flickering: b.flickering, weaponId: b.weaponId,
       })),
+      portals: this.portals.filter(p => p.active).map(p => ({
+        id: p.id, x: p.x, y: p.y, ownerId: p.ownerId,
+      })),
+      blackHoles: this.blackHoles.filter(b => b.active).map(b => ({
+        id: b.id, x: b.x, y: b.y, radius: b.radius, age: b.age, maxAge: b.maxAge, pullOnly: b.pullOnly || false,
+      })),
       flag: this.flag,
       gameMode: this.gameMode,
       timeLeft: this.timeLeft,
       gameOver: this.gameOver,
       winner: this.winner,
+      countdown: this.countdown,
       events: this.events,
     };
   }
@@ -1412,17 +1940,105 @@ class GameEngine {
       proj.age = p.age;
       return proj;
     });
+    this.portals = (state.portals || []).map(p => ({ ...p, active: true }));
+    this.blackHoles = (state.blackHoles || []).map(b => ({ ...b, active: true }));
     this.flag = state.flag;
     this.gameMode = state.gameMode;
     this.timeLeft = state.timeLeft;
     this.gameOver = state.gameOver;
     this.winner = state.winner;
+    this.countdown = state.countdown || 0;
+  }
+}
+
+// Simple server-side AI bot
+class Bot extends Worm {
+  constructor(id, name, x, y) {
+    super(id, name, x, y);
+    this.isBot = true;
+    this.botTarget = null;
+    this.botActionTimer = 0;
+    this.botMoveTimer = 0;
+    this.botInput = {
+      left: false, right: false, up: false, down: false,
+      fire: false, jump: false, change: false, dig: false,
+      _prevLeft: false, _prevRight: false, _prevJump: false,
+      _prevChange: false, _prevFire: false,
+    };
+  }
+
+  updateBotAI(engine) {
+    if (!this.alive) return this.botInput;
+
+    this.botActionTimer--;
+    this.botMoveTimer--;
+
+    // Reset inputs
+    const inp = this.botInput;
+    inp.left = false; inp.right = false; inp.up = false; inp.down = false;
+    inp.fire = false; inp.jump = false;
+
+    // Find nearest worm target
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (const [, w] of engine.worms) {
+      if (w.id === this.id || !w.alive || w.isBot) continue;
+      const dx = w.x - this.x;
+      const dy = w.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < nearestDist) { nearestDist = dist; nearest = w; }
+    }
+
+    if (!nearest) {
+      // Wander randomly
+      if (this.botMoveTimer <= 0) {
+        inp.left = Math.random() < 0.5;
+        inp.right = !inp.left;
+        inp.jump = Math.random() < 0.15;
+        this.botMoveTimer = 20 + Math.floor(Math.random() * 40);
+      }
+      return inp;
+    }
+
+    const dx = nearest.x - this.x;
+    const dy = nearest.y - this.y;
+
+    // Move toward target
+    if (dx > 10) { inp.right = true; inp.left = false; }
+    else if (dx < -10) { inp.left = true; inp.right = false; }
+
+    // Jump if on ground and target is above or blocked
+    if (this.onGround && (dy < -10 || this.botMoveTimer <= 0)) {
+      inp.jump = Math.random() < 0.3;
+      this.botMoveTimer = 30;
+    }
+
+    // Aim at target
+    const aimAngle = Math.atan2(-dy, Math.abs(dx)) * (180 / Math.PI);
+    const aimDiff = aimAngle - this.aim;
+    if (aimDiff > 2) inp.up = true;
+    else if (aimDiff < -2) inp.down = true;
+
+    // Fire if roughly aimed
+    if (nearestDist < 200 && Math.abs(aimDiff) < 15 && this.botActionTimer <= 0) {
+      inp.fire = true;
+      this.botActionTimer = 5 + Math.floor(Math.random() * 15);
+    }
+
+    // Dig if stuck
+    if (Math.abs(this.vx) < 0.01 && (inp.left || inp.right)) {
+      inp.dig = true;
+    } else {
+      inp.dig = false;
+    }
+
+    return inp;
   }
 }
 
 // Export
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { GameEngine, Worm, Projectile, Particle, NinjaRope, Bonus, getAimDirX, getAimDirY, WEAPONS };
+  module.exports = { GameEngine, Worm, Bot, Projectile, Particle, NinjaRope, Bonus, getAimDirX, getAimDirY, WEAPONS };
 } else if (typeof window !== 'undefined') {
   window.GameEngine = GameEngine;
   window.Worm = Worm;
