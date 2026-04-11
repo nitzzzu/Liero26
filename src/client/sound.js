@@ -163,4 +163,93 @@ class SoundEngine {
       this.masterGain.gain.value = this.volume;
     }
   }
+
+  async startMusic(url) {
+    if (!this.enabled || !this.initialized) return;
+    this.stopMusic();
+
+    // Per-channel wave shapes for variety (ch 10 = drums, skipped)
+    const WAVES = [
+      'triangle','sine','triangle','sawtooth',
+      'triangle','sine','sawtooth','triangle',
+      'triangle', null, 'triangle','sine',
+      'sawtooth','triangle','sine','triangle',
+    ];
+
+    this._musicGain = this.ctx.createGain();
+    this._musicGain.gain.value = 0.18;
+    this._musicGain.connect(this.masterGain);
+    this._activeNotes = {};
+
+    const player = new MidiPlayer.Player((event) => {
+      if (event.channel === 10) return; // skip drums
+      const key = `${event.channel}-${event.noteNumber}`;
+
+      if (event.name === 'Note on' && event.velocity > 0) {
+        // Release previous note on same pitch if any
+        if (this._activeNotes[key]) this._musicRelease(this._activeNotes[key]);
+
+        const freq = 440 * Math.pow(2, (event.noteNumber - 69) / 12);
+        const wave = WAVES[(event.channel - 1) % 16] || 'triangle';
+        const vol  = (event.velocity / 127) * 0.12;
+
+        const osc  = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type            = wave;
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0,   this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 0.015);
+        osc.connect(gain);
+        gain.connect(this._musicGain);
+        osc.start();
+
+        this._activeNotes[key] = { osc, gain };
+
+      } else if (event.name === 'Note off' ||
+                (event.name === 'Note on' && event.velocity === 0)) {
+        if (this._activeNotes[key]) {
+          this._musicRelease(this._activeNotes[key]);
+          delete this._activeNotes[key];
+        }
+      }
+    });
+
+    // Loop: restart when the file ends
+    player.on('endOfFile', () => {
+      this._stopAllNotes();
+      player.stop();
+      player.play();
+    });
+
+    try {
+      const resp = await fetch(url);
+      const buf  = await resp.arrayBuffer();
+      player.loadArrayBuffer(buf);
+      player.play();
+      this._midiPlayer = player;
+    } catch (e) {
+      console.warn('Background music failed:', e);
+    }
+  }
+
+  _musicRelease({ osc, gain }) {
+    const t = this.ctx.currentTime;
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0, t + 0.07);
+    try { osc.stop(t + 0.08); } catch (_) {}
+    setTimeout(() => { try { gain.disconnect(); } catch (_) {} }, 200);
+  }
+
+  _stopAllNotes() {
+    for (const node of Object.values(this._activeNotes || {})) {
+      this._musicRelease(node);
+    }
+    this._activeNotes = {};
+  }
+
+  stopMusic() {
+    if (this._midiPlayer) { this._midiPlayer.stop(); this._midiPlayer = null; }
+    this._stopAllNotes();
+    if (this._musicGain) { this._musicGain.disconnect(); this._musicGain = null; }
+  }
 }

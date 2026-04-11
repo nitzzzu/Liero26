@@ -137,6 +137,7 @@ class LieroClient {
         document.getElementById('game-screen').style.display = 'block';
         this.sound.init();
         this.sound.play('begin');
+        this.sound.startMusic('/music.mid');
         break;
 
       case 'state':
