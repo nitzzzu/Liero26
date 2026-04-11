@@ -1215,7 +1215,8 @@ class GameEngine {
     }
 
     // Chain Lightning: arc to nearest worms
-    if (w.chainLightning && !proj.chainCount) {
+    if (w.chainLightning && (proj.chainCount === undefined || proj.chainCount === 0)) {
+      proj.chainCount = 1;
       this._chainLightning(proj, w, worm, 3);
     }
 
@@ -1470,9 +1471,7 @@ class GameEngine {
         } else {
           killer.kills++;
           killer.streak = (killer.streak || 0) + 1;
-          // Track weapon kill
-          const weapId = worm.lastDamageBy !== undefined ? worm.lastDamageBy : -1;
-          // We track by weapon used - find what weapon the killer last fired
+          // Track weapon kill - use the killer's currently equipped weapon
           if (!killer.weaponKills) killer.weaponKills = {};
           const lastWeap = killer.weapons[killer.currentWeapon];
           killer.weaponKills[lastWeap] = (killer.weaponKills[lastWeap] || 0) + 1;
@@ -1610,7 +1609,9 @@ class GameEngine {
                   }
                   if (this.mapColors[idx] !== newColor) {
                     this.mapColors[idx] = newColor;
-                    this.changedCells.push(idx);
+                    // Only track each changed cell once per update
+                    if (!this._pendingCells) this._pendingCells = new Set();
+                    this._pendingCells.add(idx);
                   }
                 }
               }
@@ -1628,6 +1629,14 @@ class GameEngine {
     // Limit particles
     while (this.particles.length > CONSTANTS.BLOOD.LIMIT) {
       this.particles.shift();
+    }
+
+    // Flush blood-stain cell changes into changedCells (deduped)
+    if (this._pendingCells && this._pendingCells.size > 0) {
+      for (const idx of this._pendingCells) {
+        this.changedCells.push(idx);
+      }
+      this._pendingCells.clear();
     }
   }
 

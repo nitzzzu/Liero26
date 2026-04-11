@@ -398,7 +398,7 @@ class LieroClient {
           break;
         }
         case 'streak': {
-          if (event.playerId === this.playerId || true) {
+          if (event.playerId === this.playerId || (this.state && this.state.worms && this.state.worms[event.playerId])) {
             const worm = this.state && this.state.worms ? this.state.worms[event.playerId] : null;
             const name = worm ? worm.name : 'Player';
             this.streakMessages.push({
