@@ -486,16 +486,18 @@ kbd {
 
 /* ===== TOUCH CONTROLS ===== */
 .touch-controls {
-  position: absolute;
+  /* Fixed to viewport so overflow:hidden on #game-screen can't clip it */
+  position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 10px 16px;
+  /* Respect iPhone home-indicator safe area */
+  padding: 8px 16px max(12px, env(safe-area-inset-bottom)) 16px;
   display: none; /* shown via JS on touch devices */
   justify-content: space-between;
   align-items: flex-end;
   pointer-events: none;
-  z-index: 20;
+  z-index: 100;
 }
 
 .touch-dpad,
@@ -503,33 +505,33 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   pointer-events: all;
 }
 
 .dpad-row {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   align-items: center;
 }
 
 .dpad-gap {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
 }
 
 .touch-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .touch-btn {
-  width: 52px;
-  height: 52px;
-  background: rgba(0, 0, 0, 0.55);
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.6);
   border: 2px solid rgba(255, 255, 255, 0.25);
   color: #fff;
-  font-size: 16px;
+  font-size: 13px;
   font-family: 'Courier New', monospace;
   font-weight: bold;
   border-radius: 8px;
@@ -548,10 +550,16 @@ kbd {
   border-color: #00ff00;
 }
 
-.btn-fire   { border-color: rgba(255, 80,  80,  0.5); color: #ff5050; }
-.btn-jump   { border-color: rgba(80,  200, 255, 0.5); color: #50c8ff; }
-.btn-change { border-color: rgba(255, 215, 0,   0.5); color: #ffd700; }
-.btn-dig    { border-color: rgba(180, 120, 60,  0.5); color: #b4783c; }
+.btn-fire   { border-color: rgba(255, 80,  80,  0.6); color: #ff5050; }
+.btn-jump   { border-color: rgba(80,  200, 255, 0.6); color: #50c8ff; }
+.btn-change { border-color: rgba(255, 215, 0,   0.6); color: #ffd700; }
+.btn-dig    { border-color: rgba(180, 120, 60,  0.6); color: #b4783c; }
+
+/* Smaller buttons on very small screens (< 360px wide) */
+@media (max-width: 359px) {
+  .touch-btn { width: 40px; height: 40px; font-size: 11px; }
+  .dpad-gap  { width: 34px; height: 34px; }
+}
 
 /* ===== MOBILE RESPONSIVE ===== */
 @media (max-width: 600px) {
