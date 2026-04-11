@@ -57,21 +57,18 @@ class Renderer {
   }
 
   resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const maxW = window.innerWidth;
-    const maxH = window.innerHeight;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
 
-    // Calculate scale to fit while maintaining aspect ratio
-    // We show a viewport of the map, not the whole map
-    const scaleX = maxW / this.viewWidth;
-    const scaleY = maxH / this.viewHeight;
-    this.scale = Math.max(1, Math.floor(Math.min(scaleX, scaleY)));
-
-    this.canvas.width = this.viewWidth * this.scale;
-    this.canvas.height = this.viewHeight * this.scale;
-    this.canvas.style.width = (this.viewWidth * this.scale) + 'px';
-    this.canvas.style.height = (this.viewHeight * this.scale) + 'px';
+    // Canvas fills the entire screen
+    this.canvas.width = W;
+    this.canvas.height = H;
+    this.canvas.style.width = W + 'px';
+    this.canvas.style.height = H + 'px';
     this.ctx.imageSmoothingEnabled = false;
+
+    // Uniform scale used for HUD text/sprite sizing (smaller axis wins)
+    this.scale = Math.max(1, Math.min(W / this.viewWidth, H / this.viewHeight));
   }
 
   setPixel(x, y, r, g, b, a) {
@@ -333,9 +330,13 @@ class Renderer {
     const st = this._getWormAnim(String(w.id), w);
     const sprite = this.sprites[st.anim];
 
+    // Per-axis pixel ratios (canvas may be stretched to fill non-4:3 screens)
+    const pxW = this.canvas.width / this.viewWidth;
+    const pxH = this.canvas.height / this.viewHeight;
+
     // Canvas position (world → screen)
-    const sx = (w.x - camX) * this.scale;
-    const sy = (w.y - camY) * this.scale;
+    const sx = (w.x - camX) * pxW;
+    const sy = (w.y - camY) * pxH;
     const DRAW = Math.floor(32 * this.scale * 0.75); // 24 screen-px at scale=1
 
     const colors = WORM_COLORS[w.color % WORM_COLORS.length];
