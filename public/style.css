@@ -122,6 +122,47 @@ body {
   box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
 }
 
+.quick-play-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.quick-play-row .btn-large {
+  flex: 1;
+}
+
+.bot-count-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.bot-count-picker label {
+  font-size: 10px;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.bot-count-picker select {
+  background: #1a1a2e;
+  border: 2px solid #333;
+  color: #00ff00;
+  padding: 6px 8px;
+  font-size: 16px;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  outline: none;
+  cursor: pointer;
+  width: 60px;
+  text-align: center;
+}
+
+.bot-count-picker select:focus {
+  border-color: #00ff00;
+}
+
 /* Buttons */
 .btn {
   padding: 10px 20px;
@@ -552,6 +593,7 @@ kbd {
 
 .btn-fire   { border-color: rgba(255, 80,  80,  0.6); color: #ff5050; }
 .btn-jump   { border-color: rgba(80,  200, 255, 0.6); color: #50c8ff; }
+.btn-rope   { border-color: rgba(100, 255, 150, 0.6); color: #64ff96; }
 .btn-change { border-color: rgba(255, 215, 0,   0.6); color: #ffd700; }
 .btn-dig    { border-color: rgba(180, 120, 60,  0.6); color: #b4783c; }
 

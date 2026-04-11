@@ -26,9 +26,21 @@
         <label for="player-name">YOUR NAME:</label>
         <input type="text" id="player-name" maxlength="20" placeholder="Enter your name..." value="">
 
-        <button class="btn btn-primary btn-large" onclick="quickPlay()">
-          ⚔️ QUICK PLAY
-        </button>
+        <div class="quick-play-row">
+          <button class="btn btn-primary btn-large" onclick="quickPlay()">
+            ⚔️ QUICK PLAY
+          </button>
+          <div class="bot-count-picker">
+            <label for="bot-count">🤖 BOTS:</label>
+            <select id="bot-count">
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
+        </div>
         <button class="btn btn-secondary" onclick="connectAndPlay()">
           🏠 BROWSE ROOMS
         </button>
@@ -141,6 +153,7 @@
           <button class="touch-btn btn-jump"   data-action="jump">JUMP</button>
         </div>
         <div class="touch-row">
+          <button class="touch-btn btn-rope"   data-action="rope">ROPE</button>
           <button class="touch-btn btn-change" data-action="change">WPN</button>
           <button class="touch-btn btn-dig"    data-action="dig">DIG</button>
         </div>

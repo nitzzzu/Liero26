@@ -541,18 +541,22 @@ class LieroClient {
 
     controls.querySelectorAll('[data-action]').forEach(btn => {
       const action = btn.dataset.action;
+      // Rope button activates both 'change' and 'jump' simultaneously
+      const ropeActions = action === 'rope' ? ['change', 'jump'] : [action];
+
       btn.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        this.touchState[action] = true;
+        ropeActions.forEach(a => { this.touchState[a] = true; });
+        if (action === 'fire' && navigator.vibrate) navigator.vibrate(40);
         this.updateInput();
       }, { passive: false });
       btn.addEventListener('touchend', (e) => {
         e.preventDefault();
-        this.touchState[action] = false;
+        ropeActions.forEach(a => { this.touchState[a] = false; });
         this.updateInput();
       }, { passive: false });
       btn.addEventListener('touchcancel', () => {
-        this.touchState[action] = false;
+        ropeActions.forEach(a => { this.touchState[a] = false; });
         this.updateInput();
       });
     });
@@ -1039,6 +1043,7 @@ function connectAndPlay() {
 function quickPlay() {
   const nameInput = document.getElementById('player-name');
   client.playerName = (nameInput.value.trim() || 'Player').substring(0, 20);
+  const botCount = parseInt(document.getElementById('bot-count')?.value || '0', 10);
   client.connect();
 
   const waitForConnection = setInterval(() => {
@@ -1055,6 +1060,9 @@ function quickPlay() {
       });
       setTimeout(() => {
         client.send({ type: 'weapons', weapons: client.selectedWeapons });
+        for (let i = 0; i < botCount; i++) {
+          client.send({ type: 'add_bot' });
+        }
       }, 500);
     }
   }, 100);

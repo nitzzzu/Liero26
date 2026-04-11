@@ -542,7 +542,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'room_list', rooms: roomList }));
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Liero26 server running on port ${PORT}`);
   console.log(`Open http://localhost:${PORT} in your browser`);
