@@ -353,6 +353,46 @@ let nextPlayerId = 1;
 let nextRoomId = 1;
 let nextBotId = 1;
 
+// ─── P2P Signaling ───────────────────────────────────────────────────────────
+// p2pRooms: roomCode → { hostWs, peers: Map<peerId, ws> }
+const p2pRooms = new Map();
+
+function generateRoomCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function p2pSend(ws, msg) {
+  try {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+  } catch (e) { /* ignore */ }
+}
+
+function cleanupP2P(ws) {
+  // Remove as host
+  for (const [code, room] of p2pRooms) {
+    if (room.hostWs === ws) {
+      // Notify all peers that host left
+      for (const [, peerWs] of room.peers) {
+        p2pSend(peerWs, { type: 'p2p_host_left' });
+      }
+      p2pRooms.delete(code);
+      return;
+    }
+    // Remove as peer
+    for (const [peerId, peerWs] of room.peers) {
+      if (peerWs === ws) {
+        room.peers.delete(peerId);
+        p2pSend(room.hostWs, { type: 'p2p_peer_left', peerId });
+        return;
+      }
+    }
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Create default room
 const defaultRoom = new Room(nextRoomId++, 'Main Arena', {
   gameMode: CONSTANTS.MODE.DEATHMATCH,
@@ -512,6 +552,72 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'room_list', rooms: roomList }));
           break;
         }
+
+        // ── P2P Signaling ──────────────────────────────────────────────────
+        case 'p2p_host': {
+          // Host registers a new P2P room
+          let code;
+          do { code = generateRoomCode(); } while (p2pRooms.has(code));
+          p2pRooms.set(code, { hostWs: ws, peers: new Map() });
+          ws._p2pCode = code;
+          ws._p2pRole = 'host';
+          ws.send(JSON.stringify({ type: 'p2p_room_code', code }));
+          break;
+        }
+        case 'p2p_join': {
+          // Peer wants to join a P2P room
+          const code = (msg.code || '').toUpperCase();
+          const p2pRoom = p2pRooms.get(code);
+          if (!p2pRoom) {
+            ws.send(JSON.stringify({ type: 'error', message: 'P2P room not found' }));
+            break;
+          }
+          const peerId = nextPlayerId++;
+          p2pRoom.peers.set(peerId, ws);
+          ws._p2pCode = code;
+          ws._p2pRole = 'peer';
+          ws._p2pId = peerId;
+          // Notify host that a peer wants to connect
+          p2pSend(p2pRoom.hostWs, {
+            type: 'p2p_peer_request',
+            peerId,
+            name: (msg.name || `Player ${peerId}`).substring(0, 20),
+            character: msg.character || 'Pink_Monster',
+          });
+          break;
+        }
+        case 'p2p_offer': {
+          // Host sends WebRTC offer to a specific peer
+          const p2pRoom = ws._p2pCode ? p2pRooms.get(ws._p2pCode) : null;
+          if (!p2pRoom || ws._p2pRole !== 'host') break;
+          const peerWs = p2pRoom.peers.get(msg.peerId);
+          if (peerWs) {
+            p2pSend(peerWs, { type: 'p2p_offer', sdp: msg.sdp });
+          }
+          break;
+        }
+        case 'p2p_answer': {
+          // Peer sends WebRTC answer back to host
+          const p2pRoom = ws._p2pCode ? p2pRooms.get(ws._p2pCode) : null;
+          if (!p2pRoom || ws._p2pRole !== 'peer') break;
+          p2pSend(p2pRoom.hostWs, { type: 'p2p_answer', peerId: ws._p2pId, sdp: msg.sdp });
+          break;
+        }
+        case 'p2p_ice': {
+          // Relay ICE candidate between host and peer
+          const p2pRoom = ws._p2pCode ? p2pRooms.get(ws._p2pCode) : null;
+          if (!p2pRoom) break;
+          if (ws._p2pRole === 'host') {
+            // Host → specific peer
+            const peerWs = p2pRoom.peers.get(msg.peerId);
+            if (peerWs) p2pSend(peerWs, { type: 'p2p_ice', candidate: msg.candidate });
+          } else if (ws._p2pRole === 'peer') {
+            // Peer → host
+            p2pSend(p2pRoom.hostWs, { type: 'p2p_ice', peerId: ws._p2pId, candidate: msg.candidate });
+          }
+          break;
+        }
+        // ──────────────────────────────────────────────────────────────────
       }
     } catch (e) {
       console.error('Message parse error:', e.message);
@@ -523,6 +629,7 @@ wss.on('connection', (ws) => {
       ws._room.removePlayer(playerId);
       ws._room = null;
     }
+    cleanupP2P(ws);
   });
 
   ws.on('error', (err) => {

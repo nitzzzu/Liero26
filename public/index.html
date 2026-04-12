@@ -44,6 +44,17 @@
         <button class="btn btn-secondary" onclick="connectAndPlay()">
           🏠 BROWSE ROOMS
         </button>
+
+        <div class="p2p-divider">— or play peer-to-peer (no server needed) —</div>
+
+        <div class="p2p-row">
+          <button class="btn btn-p2p" onclick="hostP2PGame()">
+            🌐 HOST P2P GAME
+          </button>
+          <button class="btn btn-p2p" onclick="joinP2PGame()">
+            🔗 JOIN P2P GAME
+          </button>
+        </div>
       </div>
 
       <div class="controls-info">
@@ -122,11 +133,60 @@
       <div id="weapon-list" class="weapon-grid"></div>
 
       <div class="weapon-actions">
-        <button class="btn btn-primary btn-large" onclick="startGameFromWeaponSelect()">
+        <button class="btn btn-primary btn-large" onclick="client._p2pPendingAction ? startGameFromWeaponSelectP2P() : startGameFromWeaponSelect()">
           🎮 START GAME
         </button>
         <button class="btn btn-secondary" onclick="client.showCharacterSelectScreen()">← BACK</button>
       </div>
+    </div>
+  </div>
+
+  <!-- P2P HOST SCREEN -->
+  <div id="p2p-host-screen" class="screen" style="display:none">
+    <div class="p2p-container">
+      <h2>🌐 P2P HOST</h2>
+      <p class="p2p-instructions">Share this code with your friends. They click <strong>JOIN P2P GAME</strong> and enter it.</p>
+
+      <div class="p2p-code-box">
+        <span class="p2p-code-label">ROOM CODE:</span>
+        <span id="p2p-room-code" class="p2p-code">......</span>
+        <button class="btn btn-small" onclick="navigator.clipboard && navigator.clipboard.writeText(document.getElementById('p2p-room-code').textContent)">📋 COPY</button>
+      </div>
+
+      <p class="p2p-instructions">Game starts automatically when all players have joined. You can also add bots:</p>
+
+      <div class="p2p-bot-row">
+        <label for="p2p-bot-count">🤖 ADD BOTS AFTER GAME STARTS:</label>
+        <select id="p2p-bot-count">
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+
+      <div class="p2p-status" id="p2p-host-status">Waiting for players to join…</div>
+
+      <button class="btn btn-secondary" onclick="client._destroyP2P(); client.showMenu()">← BACK</button>
+    </div>
+  </div>
+
+  <!-- P2P JOIN SCREEN -->
+  <div id="p2p-join-screen" class="screen" style="display:none">
+    <div class="p2p-container">
+      <h2>🔗 JOIN P2P GAME</h2>
+      <p class="p2p-instructions">Enter the 6-character room code from your host.</p>
+
+      <div class="p2p-join-form">
+        <input type="text" id="p2p-join-code" maxlength="6" placeholder="XXXXXX"
+               style="text-transform:uppercase;letter-spacing:0.3em;font-size:1.4em;text-align:center"
+               oninput="this.value=this.value.toUpperCase()">
+        <button class="btn btn-primary btn-large" onclick="client.joinP2PGame()">🔗 CONNECT</button>
+      </div>
+
+      <div class="p2p-status" id="p2p-join-status"></div>
+
+      <button class="btn btn-secondary" onclick="client.showMenu()">← BACK</button>
     </div>
   </div>
 
@@ -169,6 +229,7 @@
   <script src="renderer.js"></script>
   <script src="midiplayer.js"></script>
   <script src="sound.js"></script>
+  <script src="p2p.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
