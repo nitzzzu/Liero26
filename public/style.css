@@ -759,3 +759,164 @@ kbd {
   font-family: monospace;
   font-size: 13px;
 }
+
+/* ── P2P Multiplayer Styles ───────────────────────────────────────────────── */
+
+.p2p-divider {
+  text-align: center;
+  color: #666;
+  font-size: 12px;
+  margin: 10px 0 6px;
+  font-family: monospace;
+}
+
+.p2p-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-p2p {
+  background: linear-gradient(135deg, #1a3a5c, #0d2b45);
+  color: #4fc3f7;
+  border: 2px solid #1565c0;
+  padding: 8px 14px;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-p2p:hover {
+  background: linear-gradient(135deg, #1e4976, #1a3a5c);
+  border-color: #4fc3f7;
+}
+
+.p2p-container {
+  background: rgba(0, 0, 0, 0.92);
+  border: 2px solid #1565c0;
+  border-radius: 8px;
+  padding: 30px 36px;
+  max-width: 480px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.p2p-container h2 {
+  color: #4fc3f7;
+  font-size: 1.6em;
+  margin: 0;
+}
+
+.p2p-instructions {
+  color: #aaa;
+  font-size: 13px;
+  text-align: center;
+  margin: 0;
+  font-family: monospace;
+}
+
+.p2p-code-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0d2b45;
+  border: 2px solid #1565c0;
+  border-radius: 6px;
+  padding: 12px 20px;
+}
+
+.p2p-code-label {
+  color: #888;
+  font-family: monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.p2p-code {
+  color: #FFD700;
+  font-family: monospace;
+  font-size: 2em;
+  font-weight: bold;
+  letter-spacing: 0.35em;
+}
+
+.btn-small {
+  background: #1e4976;
+  color: #4fc3f7;
+  border: 1px solid #1565c0;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.btn-small:hover {
+  background: #2a5a8a;
+}
+
+.p2p-bot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.p2p-bot-row select {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.p2p-status {
+  color: #4fc3f7;
+  font-family: monospace;
+  font-size: 13px;
+  text-align: center;
+  min-height: 20px;
+  animation: p2p-blink 1.2s infinite;
+}
+
+@keyframes p2p-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.p2p-join-form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.p2p-join-form input {
+  width: 100%;
+  padding: 12px;
+  background: #1a1a2e;
+  border: 2px solid #1565c0;
+  color: #FFD700;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 1.8em;
+  text-align: center;
+  letter-spacing: 0.35em;
+  box-sizing: border-box;
+}
+
+.p2p-join-form input:focus {
+  outline: none;
+  border-color: #4fc3f7;
+}

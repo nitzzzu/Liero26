@@ -89,6 +89,12 @@ class LieroClient {
     // Gamepad state
     this.gamepadState = {};
     this.gamepadIndex = null; // index of the active gamepad
+
+    // P2P state
+    this.p2pMode = null;       // null | 'host' | 'peer'
+    this.p2pHost = null;       // P2PHost instance (when hosting)
+    this.p2pPeer = null;       // P2PPeer instance (when joining)
+    this.signalingWs = null;   // WebSocket used for WebRTC signaling
   }
 
   init() {
@@ -116,6 +122,10 @@ class LieroClient {
     document.getElementById('lobby-screen').style.display = 'none';
     document.getElementById('weapon-screen').style.display = 'none';
     document.getElementById('character-screen').style.display = 'none';
+    const p2pHost = document.getElementById('p2p-host-screen');
+    if (p2pHost) p2pHost.style.display = 'none';
+    const p2pJoin = document.getElementById('p2p-join-screen');
+    if (p2pJoin) p2pJoin.style.display = 'none';
   }
 
   connect() {
@@ -631,6 +641,25 @@ class LieroClient {
   }
 
   send(msg) {
+    if (this.p2pMode === 'host' && this.p2pHost) {
+      // Host processes some messages locally
+      switch (msg.type) {
+        case 'input':
+          this.p2pHost.updateInput(msg.input);
+          break;
+        case 'chat':
+          this.p2pHost.sendChat(msg.message);
+          break;
+        case 'weapons':
+          this.p2pHost.applyWeapons(msg.weapons);
+          break;
+      }
+      return;
+    }
+    if (this.p2pMode === 'peer' && this.p2pPeer) {
+      this.p2pPeer.sendToHost(msg);
+      return;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
@@ -810,6 +839,150 @@ class LieroClient {
       container.appendChild(div);
     }
   }
+
+  // ── P2P Methods ────────────────────────────────────────────────────────────
+
+  _openSignalingWs(onOpen) {
+    if (this.signalingWs && this.signalingWs.readyState === WebSocket.OPEN) {
+      onOpen();
+      return;
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${window.location.host}`;
+    this.signalingWs = new WebSocket(wsUrl);
+
+    this.signalingWs.onopen = () => {
+      onOpen();
+    };
+
+    this.signalingWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        this._handleSignalingMessage(msg);
+      } catch (e) { /* ignore */ }
+    };
+
+    this.signalingWs.onclose = () => {
+      // Signaling WS closed; P2P data channels remain open
+    };
+  }
+
+  _handleSignalingMessage(msg) {
+    switch (msg.type) {
+      case 'p2p_room_code':
+        if (this.p2pHost) {
+          this.p2pHost.onRoomCode(msg.code);
+          // Show the room code in UI
+          const codeEl = document.getElementById('p2p-room-code');
+          if (codeEl) codeEl.textContent = msg.code;
+          this._showP2PHostScreen();
+        }
+        break;
+
+      case 'p2p_peer_request':
+        if (this.p2pHost) {
+          this.p2pHost.onPeerRequest(msg.peerId, msg.name, msg.character);
+        }
+        break;
+
+      case 'p2p_offer':
+        if (this.p2pPeer) {
+          this.p2pPeer.onOffer(msg.sdp);
+        }
+        break;
+
+      case 'p2p_answer':
+        if (this.p2pHost) {
+          this.p2pHost.onPeerAnswer(msg.peerId, msg.sdp);
+        }
+        break;
+
+      case 'p2p_ice':
+        if (this.p2pHost && msg.peerId !== undefined) {
+          this.p2pHost.onPeerIce(msg.peerId, msg.candidate);
+        } else if (this.p2pPeer) {
+          this.p2pPeer.onIce(msg.candidate);
+        }
+        break;
+
+      case 'p2p_host_left':
+        this.addChatMessage('system', 'Host disconnected.');
+        this.showMenu();
+        break;
+
+      case 'error':
+        alert(msg.message);
+        break;
+    }
+  }
+
+  hostP2PGame() {
+    const botCount = parseInt(document.getElementById('p2p-bot-count') ?
+      document.getElementById('p2p-bot-count').value : '0') || 0;
+
+    this._destroyP2P();
+    this.p2pMode = 'host';
+    this.p2pHost = new P2PHost(this);
+
+    this._openSignalingWs(() => {
+      this.p2pHost.create({
+        gameMode: CONSTANTS.MODE.DEATHMATCH,
+        scoreLimit: 15,
+        timeLimit: 300,
+        goriness: 2,
+        botCount,
+      });
+    });
+  }
+
+  joinP2PGame() {
+    const codeInput = document.getElementById('p2p-join-code');
+    const code = codeInput ? codeInput.value.trim().toUpperCase() : '';
+    if (code.length !== 6) {
+      alert('Please enter a valid 6-character room code.');
+      return;
+    }
+
+    this._destroyP2P();
+    this.p2pMode = 'peer';
+    this.p2pPeer = new P2PPeer(this);
+
+    this._openSignalingWs(() => {
+      this.p2pPeer.join(code, this.playerName, this.selectedCharacter);
+    });
+    // Show a "Connecting…" message
+    this.addChatMessage('system', `Connecting to P2P room ${code}…`);
+  }
+
+  _destroyP2P() {
+    if (this.p2pHost) { this.p2pHost.destroy(); this.p2pHost = null; }
+    if (this.p2pPeer) { this.p2pPeer.destroy(); this.p2pPeer = null; }
+    this.p2pMode = null;
+  }
+
+  _showP2PHostScreen() {
+    this.screen = 'p2p-host';
+    document.getElementById('menu-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('lobby-screen').style.display = 'none';
+    document.getElementById('weapon-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'none';
+    document.getElementById('p2p-host-screen').style.display = 'flex';
+  }
+
+  _showP2PJoinScreen() {
+    this.screen = 'p2p-join';
+    document.getElementById('menu-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('lobby-screen').style.display = 'none';
+    document.getElementById('weapon-screen').style.display = 'none';
+    document.getElementById('character-screen').style.display = 'none';
+    const h = document.getElementById('p2p-host-screen');
+    if (h) h.style.display = 'none';
+    document.getElementById('p2p-join-screen').style.display = 'flex';
+  }
+
+  // ── End P2P Methods ─────────────────────────────────────────────────────────
 
   startGame() {
     this.send({
@@ -1145,6 +1318,35 @@ function startGameFromCharacterSelect() {
 
 function startGameFromWeaponSelect() {
   client.startGame();
+}
+
+function hostP2PGame() {
+  const nameInput = document.getElementById('player-name');
+  client.playerName = (nameInput.value.trim() || 'Player').substring(0, 20);
+  // Go through character → weapon select first, then host
+  client._p2pPendingAction = 'host';
+  client.currentRoomId = null;
+  client.showCharacterSelectScreen();
+}
+
+function joinP2PGame() {
+  const nameInput = document.getElementById('player-name');
+  client.playerName = (nameInput.value.trim() || 'Player').substring(0, 20);
+  // Go through character → weapon select first, then join
+  client._p2pPendingAction = 'join';
+  client.currentRoomId = null;
+  client.showCharacterSelectScreen();
+}
+
+function startGameFromWeaponSelectP2P() {
+  if (client._p2pPendingAction === 'host') {
+    client._p2pPendingAction = null;
+    client.hostP2PGame();
+  } else if (client._p2pPendingAction === 'join') {
+    client._p2pPendingAction = null;
+    // Show the join code input screen (reuse the p2p-host-screen but as join flow)
+    client._showP2PJoinScreen();
+  }
 }
 
 // Initialize when DOM is ready
