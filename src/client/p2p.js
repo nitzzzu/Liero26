@@ -326,7 +326,7 @@ class P2PHost {
       case 'pong': {
         const timer = this.pingTimers.get(peerId);
         if (timer) {
-          const latency = Date.now() - msg.ts;
+          const latency = Date.now() - timer.sent;
           this._ctrlSendToPeer(peerId, { type: 'latency', latency });
         }
         break;

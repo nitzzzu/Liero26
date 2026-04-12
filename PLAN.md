@@ -38,16 +38,16 @@ Server (signaling only, ~KB per session)
 
 ### Phase 2 — Server Signaling Relay
 File: `src/server/index.js`
-- [ ] Add `p2pRooms` map (roomCode → { hostWs, peers })
-- [ ] Handle `p2p_host` — create a 6-char room code, store hostWs
-- [ ] Handle `p2p_join` — forward join request to host
-- [ ] Handle `p2p_offer` — relay SDP offer from host to a specific peer
-- [ ] Handle `p2p_answer` — relay SDP answer from peer to host
-- [ ] Handle `p2p_ice` — relay ICE candidates bidirectionally
-- [ ] Clean up p2pRooms on WebSocket close
+- [x] Add `p2pRooms` map (roomCode → { hostWs, peers })
+- [x] Handle `p2p_host` — create a 6-char room code, store hostWs
+- [x] Handle `p2p_join` — forward join request to host
+- [x] Handle `p2p_offer` — relay SDP offer from host to a specific peer
+- [x] Handle `p2p_answer` — relay SDP answer from peer to host
+- [x] Handle `p2p_ice` — relay ICE candidates bidirectionally
+- [x] Clean up p2pRooms on WebSocket close
 
 ### Phase 3 — P2P Engine (src/client/p2p.js, new file)
-- [ ] `P2PHost` class
+- [x] `P2PHost` class
   - `constructor(gameClient)` — stores reference to LieroClient
   - `create(settings)` — sends `p2p_host` to signaling server, returns room code
   - `acceptPeer(peerId, sdp)` — create RTCPeerConnection, answer offer
@@ -55,7 +55,7 @@ File: `src/server/index.js`
   - `_gameLoop()` — setInterval at TICK_RATE, identical to server Room.start()
   - `_broadcastToPeers(data)` — JSON → all open DataChannels
   - `destroy()` — stop loop, close all connections
-- [ ] `P2PPeer` class
+- [x] `P2PPeer` class
   - `constructor(gameClient)` — stores reference to LieroClient
   - `join(roomCode)` — sends `p2p_join` to signaling server
   - `handleOffer(sdp, peerId)` — create RTCPeerConnection, setRemoteDescription, createAnswer
@@ -64,22 +64,23 @@ File: `src/server/index.js`
   - `destroy()` — close connection
 
 ### Phase 4 — Client Integration (src/client/game.js)
-- [ ] Add `this.p2pMode = null` (null | 'host' | 'peer') to constructor
-- [ ] Add `this.p2pHost = null` / `this.p2pPeer = null`
-- [ ] `hostP2PGame(settings)` — create P2PHost, connect to signaling WS, show code
-- [ ] `joinP2PGame(code)` — create P2PPeer, connect to signaling WS, join room
-- [ ] Modify `send(msg)` — route to P2PHost or P2PPeer when in P2P mode
-- [ ] New screen `'p2p-host-lobby'` — show room code + player list while waiting
-- [ ] Hook `p2p_room_code` server message to show code in UI
+- [x] Add `this.p2pMode = null` (null | 'host' | 'peer') to constructor
+- [x] Add `this.p2pHost = null` / `this.p2pPeer = null`
+- [x] `hostP2PGame(settings)` — create P2PHost, connect to signaling WS, show code
+- [x] `joinP2PGame(code)` — create P2PPeer, connect to signaling WS, join room
+- [x] Modify `send(msg)` — route to P2PHost or P2PPeer when in P2P mode
+- [x] New screen `'p2p-host-lobby'` — show room code + player list while waiting
+- [x] Hook `p2p_room_code` server message to show code in UI
 
 ### Phase 5 — UI (public/index.html + public/style.css)
-- [ ] Add P2P section to menu: "HOST P2P GAME" / "JOIN P2P GAME" buttons
-- [ ] Add `#p2p-host-screen` — shows room code, connected peers, Start button
-- [ ] Add `#p2p-join-screen` — text input for 6-char room code + Connect button
-- [ ] CSS for new screens (reuse existing class conventions)
+- [x] Add P2P section to menu: "HOST P2P GAME" / "JOIN P2P GAME" buttons
+- [x] Add `#p2p-host-screen` — shows room code, connected peers, Start button
+- [x] Add `#p2p-join-screen` — text input for 6-char room code + Connect button
+- [x] CSS for new screens (reuse existing class conventions)
 
 ### Phase 6 — Testing & Validation
-- [ ] Existing 54 unit tests still pass (`npm test`)
+- [x] Existing 56 unit tests still pass (`npm test`)
+- [x] CodeQL security scan: 0 alerts
 - [ ] Manual test: open two browser tabs, host + peer can play together
 - [ ] Signaling cleanup: closing tab removes p2pRoom entry
 
